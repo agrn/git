@@ -9,6 +9,7 @@
 #include "revision.h"
 #include "sha1-lookup.h"
 #include "commit-graph.h"
+#include "object-store.h"
 
 #define GRAPH_SIGNATURE 0x43475048 /* "CGPH" */
 #define GRAPH_CHUNKID_OIDFANOUT 0x4f494446 /* "OIDF" */
@@ -210,7 +211,7 @@ static void prepare_commit_graph(void)
 	obj_dir = get_object_directory();
 	prepare_commit_graph_one(obj_dir);
 	prepare_alt_odb(the_repository);
-	for (alt = the_repository->objects.alt_odb_list; !commit_graph && alt; alt = alt->next)
+	for (alt = the_repository->objects->alt_odb_list; !commit_graph && alt; alt = alt->next)
 		prepare_commit_graph_one(alt->path);
 }
 
