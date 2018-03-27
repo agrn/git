@@ -643,4 +643,17 @@ char *xstrvfmt(const char *fmt, va_list ap);
 __attribute__((format (printf, 1, 2)))
 char *xstrfmt(const char *fmt, ...);
 
+/*
+ * Expand error message, append it to strbuf *err, then return error code ret.
+ * Allow to save few lines of code.
+ */
+static inline int strbuf_error(struct strbuf *err, int ret, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	strbuf_vaddf(err, fmt, ap);
+	va_end(ap);
+	return ret;
+}
+
 #endif /* STRBUF_H */
