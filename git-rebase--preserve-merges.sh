@@ -1,9 +1,5 @@
 # This shell script fragment is sourced by git-rebase to implement its
-# interactive mode, with the --preserve-merges flag.  "git rebase --interactive"
-# makes it easy to fix up commits in the middle of a series and rearrange
-# commits.
-#
-# Copyright (c) 2006 Johannes E. Schindelin
+# interactive mode, with the --preserve-merges flag.
 
 . git-rebase--interactive.sh
 
