@@ -242,11 +242,6 @@ is_empty_commit() {
 	test "$tree" = "$ptree"
 }
 
-is_merge_commit()
-{
-	git rev-parse --verify --quiet "$1"^2 >/dev/null 2>&1
-}
-
 # Run command with GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and
 # GIT_AUTHOR_DATE exported from the current environment.
 do_with_author () {
@@ -281,8 +276,6 @@ pick_one () {
 		empty_args="--allow-empty"
 	fi
 
-	test -d "$rewritten" &&
-		pick_one_preserving_merges "$@" && return
 	output eval git cherry-pick $allow_rerere_autoupdate $allow_empty_message \
 			${gpg_sign_opt:+$(git rev-parse --sq-quote "$gpg_sign_opt")} \
 			$signoff "$strategy_args" $empty_args $ff "$@"
@@ -292,127 +285,6 @@ pick_one () {
 	ret=$?
 	case "$ret" in [01]) ;; *) reschedule_last_action ;; esac
 	return $ret
-}
-
-pick_one_preserving_merges () {
-	fast_forward=t
-	case "$1" in
-	-n)
-		fast_forward=f
-		sha1=$2
-		;;
-	*)
-		sha1=$1
-		;;
-	esac
-	sha1=$(git rev-parse $sha1)
-
-	if test -f "$state_dir"/current-commit && test "$fast_forward" = t
-	then
-		while read current_commit
-		do
-			git rev-parse HEAD > "$rewritten"/$current_commit
-		done <"$state_dir"/current-commit
-		rm "$state_dir"/current-commit ||
-			die "$(gettext "Cannot write current commit's replacement sha1")"
-	fi
-
-	echo $sha1 >> "$state_dir"/current-commit
-
-	# rewrite parents; if none were rewritten, we can fast-forward.
-	new_parents=
-	pend=" $(git rev-list --parents -1 $sha1 | cut -d' ' -s -f2-)"
-	if test "$pend" = " "
-	then
-		pend=" root"
-	fi
-	while [ "$pend" != "" ]
-	do
-		p=$(expr "$pend" : ' \([^ ]*\)')
-		pend="${pend# $p}"
-
-		if test -f "$rewritten"/$p
-		then
-			new_p=$(cat "$rewritten"/$p)
-
-			# If the todo reordered commits, and our parent is marked for
-			# rewriting, but hasn't been gotten to yet, assume the user meant to
-			# drop it on top of the current HEAD
-			if test -z "$new_p"
-			then
-				new_p=$(git rev-parse HEAD)
-			fi
-
-			test $p != $new_p && fast_forward=f
-			case "$new_parents" in
-			*$new_p*)
-				;; # do nothing; that parent is already there
-			*)
-				new_parents="$new_parents $new_p"
-				;;
-			esac
-		else
-			if test -f "$dropped"/$p
-			then
-				fast_forward=f
-				replacement="$(cat "$dropped"/$p)"
-				test -z "$replacement" && replacement=root
-				pend=" $replacement$pend"
-			else
-				new_parents="$new_parents $p"
-			fi
-		fi
-	done
-	case $fast_forward in
-	t)
-		output warn "$(eval_gettext "Fast-forward to \$sha1")"
-		output git reset --hard $sha1 ||
-			die "$(eval_gettext "Cannot fast-forward to \$sha1")"
-		;;
-	f)
-		first_parent=$(expr "$new_parents" : ' \([^ ]*\)')
-
-		if [ "$1" != "-n" ]
-		then
-			# detach HEAD to current parent
-			output git checkout $first_parent 2> /dev/null ||
-				die "$(eval_gettext "Cannot move HEAD to \$first_parent")"
-		fi
-
-		case "$new_parents" in
-		' '*' '*)
-			test "a$1" = a-n && die "$(eval_gettext "Refusing to squash a merge: \$sha1")"
-
-			# redo merge
-			author_script_content=$(get_author_ident_from_commit $sha1)
-			eval "$author_script_content"
-			msg_content="$(commit_message $sha1)"
-			# No point in merging the first parent, that's HEAD
-			new_parents=${new_parents# $first_parent}
-			merge_args="--no-log --no-ff"
-			if ! do_with_author output eval \
-				git merge ${gpg_sign_opt:+$(git rev-parse \
-					--sq-quote "$gpg_sign_opt")} \
-				$allow_rerere_autoupdate "$merge_args" \
-				"$strategy_args" \
-				-m "$(git rev-parse --sq-quote "$msg_content")" \
-				"$new_parents"
-			then
-				printf "%s\n" "$msg_content" > "$GIT_DIR"/MERGE_MSG
-				die_with_patch $sha1 "$(eval_gettext "Error redoing merge \$sha1")"
-			fi
-			echo "$sha1 $(git rev-parse HEAD^0)" >> "$rewritten_list"
-			;;
-		*)
-			output eval git cherry-pick $allow_rerere_autoupdate \
-				$allow_empty_message \
-				${gpg_sign_opt:+$(git rev-parse --sq-quote "$gpg_sign_opt")} \
-				"$strategy_args" "$@" ||
-				die_with_patch $sha1 "$(eval_gettext "Could not pick \$sha1")"
-			;;
-		esac
-		;;
-	esac
 }
 
 this_nth_commit_message () {
@@ -755,77 +627,13 @@ get_missing_commit_check_level () {
 initiate_action () {
 	case "$1" in
 	continue)
-		if test ! -d "$rewritten"
-		then
-			exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
-				--continue
-		fi
-		# do we have anything to commit?
-		if git diff-index --cached --quiet HEAD --
-		then
-			# Nothing to commit -- skip this commit
-
-			test ! -f "$GIT_DIR"/CHERRY_PICK_HEAD ||
-			rm "$GIT_DIR"/CHERRY_PICK_HEAD ||
-			die "$(gettext "Could not remove CHERRY_PICK_HEAD")"
-		else
-			if ! test -f "$author_script"
-			then
-				gpg_sign_opt_quoted=${gpg_sign_opt:+$(git rev-parse --sq-quote "$gpg_sign_opt")}
-				die "$(eval_gettext "\
-You have staged changes in your working tree.
-If these changes are meant to be
-squashed into the previous commit, run:
-
-  git commit --amend \$gpg_sign_opt_quoted
-
-If they are meant to go into a new commit, run:
-
-  git commit \$gpg_sign_opt_quoted
-
-In both cases, once you're done, continue with:
-
-  git rebase --continue
-")"
-			fi
-			. "$author_script" ||
-				die "$(gettext "Error trying to find the author identity to amend commit")"
-			if test -f "$amend"
-			then
-				current_head=$(git rev-parse --verify HEAD)
-				test "$current_head" = $(cat "$amend") ||
-				die "$(gettext "\
-You have uncommitted changes in your working tree. Please commit them
-first and then run 'git rebase --continue' again.")"
-				do_with_author git commit --amend --no-verify -F "$msg" -e \
-					${gpg_sign_opt:+"$gpg_sign_opt"} $allow_empty_message ||
-					die "$(gettext "Could not commit staged changes.")"
-			else
-				do_with_author git commit --no-verify -F "$msg" -e \
-					${gpg_sign_opt:+"$gpg_sign_opt"} $allow_empty_message ||
-					die "$(gettext "Could not commit staged changes.")"
-			fi
-		fi
-
-		if test -r "$state_dir"/stopped-sha
-		then
-			record_in_rewritten "$(cat "$state_dir"/stopped-sha)"
-		fi
-
-		require_clean_work_tree "rebase"
-		do_rest
-		return 0
+		exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
+		     --continue
 		;;
 	skip)
 		git rerere clear
-
-		if test ! -d "$rewritten"
-		then
-			exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
-				--continue
-		fi
-		do_rest
-		return 0
+		exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
+		     --continue
 		;;
 	edit-todo)
 		git stripspace --strip-comments <"$todo" >"$todo".new
@@ -937,12 +745,12 @@ EOF
 
 	expand_todo_ids
 
-	test -d "$rewritten" || test -n "$force_rebase" ||
+        test -n "$force_rebase" ||
 	onto="$(git rebase--helper --skip-unnecessary-picks)" ||
 	die "Could not skip unnecessary pick commands"
 
 	checkout_onto
-	if test -z "$rebase_root" && test ! -d "$rewritten"
+	if test -z "$rebase_root"
 	then
 		require_clean_work_tree "rebase"
 		exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
@@ -966,94 +774,6 @@ git_rebase__interactive () {
 	git rebase--helper --make-script ${keep_empty:+--keep-empty} \
 		$revisions ${restrict_revision+^$restrict_revision} >"$todo" ||
 	die "$(gettext "Could not generate todo list")"
-
-	complete_action
-}
-
-git_rebase__interactive__preserve_merges () {
-	initiate_action "$action"
-	ret=$?
-	if test $ret = 0; then
-		return 0
-	fi
-
-	setup_reflog_action
-	init_basic_state
-
-	if test -z "$rebase_root"
-	then
-		mkdir "$rewritten" &&
-		for c in $(git merge-base --all $orig_head $upstream)
-		do
-			echo $onto > "$rewritten"/$c ||
-				die "$(gettext "Could not init rewritten commits")"
-		done
-	else
-		mkdir "$rewritten" &&
-		echo $onto > "$rewritten"/root ||
-			die "$(gettext "Could not init rewritten commits")"
-	fi
-
-	init_revisions_and_shortrevisions
-
-	format=$(git config --get rebase.instructionFormat)
-	# the 'rev-list .. | sed' requires %m to parse; the instruction requires %H to parse
-	git rev-list --format="%m%H ${format:-%s}" \
-		--reverse --left-right --topo-order \
-		$revisions ${restrict_revision+^$restrict_revision} | \
-		sed -n "s/^>//p" |
-	while read -r sha1 rest
-	do
-		if test -z "$keep_empty" && is_empty_commit $sha1 && ! is_merge_commit $sha1
-		then
-			comment_out="$comment_char "
-		else
-			comment_out=
-		fi
-
-		if test -z "$rebase_root"
-		then
-			preserve=t
-			for p in $(git rev-list --parents -1 $sha1 | cut -d' ' -s -f2-)
-			do
-				if test -f "$rewritten"/$p
-				then
-					preserve=f
-				fi
-			done
-		else
-			preserve=f
-		fi
-		if test f = "$preserve"
-		then
-			touch "$rewritten"/$sha1
-			printf '%s\n' "${comment_out}pick $sha1 $rest" >>"$todo"
-		fi
-	done
-
-	# Watch for commits that been dropped by --cherry-pick
-	mkdir "$dropped"
-	# Save all non-cherry-picked changes
-	git rev-list $revisions --left-right --cherry-pick | \
-		sed -n "s/^>//p" > "$state_dir"/not-cherry-picks
-	# Now all commits and note which ones are missing in
-	# not-cherry-picks and hence being dropped
-	git rev-list $revisions |
-	while read rev
-	do
-		if test -f "$rewritten"/$rev &&
-		   ! sane_grep "$rev" "$state_dir"/not-cherry-picks >/dev/null
-		then
-			# Use -f2 because if rev-list is telling us this commit is
-			# not worthwhile, we don't want to track its multiple heads,
-			# just the history of its first-parent for others that will
-			# be rebasing on top of it
-			git rev-list --parents -1 $rev | cut -d' ' -s -f2 > "$dropped"/$rev
-			sha1=$(git rev-list -1 $rev)
-			sane_grep -v "^[a-z][a-z]* $sha1" <"$todo" > "${todo}2" ; mv "${todo}2" "$todo"
-			rm "$rewritten"/$rev
-		fi
-	done
 
 	complete_action
 }
