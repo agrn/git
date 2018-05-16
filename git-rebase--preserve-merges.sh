@@ -1,11 +1,7 @@
-# This shell script fragment is sourced by git-rebase to implement
-# its interactive mode.  "git rebase --interactive" makes it easy
-# to fix up commits in the middle of a series and rearrange commits.
+# This shell script fragment is sourced by git-rebase to implement its
+# preserve-merges mode.
 #
 # Copyright (c) 2006 Johannes E. Schindelin
-#
-# The original idea comes from Eric W. Biederman, in
-# https://public-inbox.org/git/m1odwkyuf5.fsf_-_@ebiederm.dsl.xmission.com/
 #
 # The file containing rebase commands, comments, and empty lines.
 # This file is created by "git rebase -i" then edited by the user.  As
@@ -281,17 +277,7 @@ pick_one () {
 		empty_args="--allow-empty"
 	fi
 
-	test -d "$rewritten" &&
-		pick_one_preserving_merges "$@" && return
-	output eval git cherry-pick $allow_rerere_autoupdate $allow_empty_message \
-			${gpg_sign_opt:+$(git rev-parse --sq-quote "$gpg_sign_opt")} \
-			$signoff "$strategy_args" $empty_args $ff "$@"
-
-	# If cherry-pick dies it leaves the to-be-picked commit unrecorded. Reschedule
-	# previous task so this commit is not lost.
-	ret=$?
-	case "$ret" in [01]) ;; *) reschedule_last_action ;; esac
-	return $ret
+	pick_one_preserving_merges "$@"
 }
 
 pick_one_preserving_merges () {
@@ -755,11 +741,6 @@ get_missing_commit_check_level () {
 initiate_action () {
 	case "$1" in
 	continue)
-		if test ! -d "$rewritten"
-		then
-			exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
-				--continue
-		fi
 		# do we have anything to commit?
 		if git diff-index --cached --quiet HEAD --
 		then
@@ -818,12 +799,6 @@ first and then run 'git rebase --continue' again.")"
 		;;
 	skip)
 		git rerere clear
-
-		if test ! -d "$rewritten"
-		then
-			exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
-				--continue
-		fi
 		do_rest
 		return 0
 		;;
@@ -936,41 +911,11 @@ EOF
 	}
 
 	expand_todo_ids
-
-	test -d "$rewritten" || test -n "$force_rebase" ||
-	onto="$(git rebase--helper --skip-unnecessary-picks)" ||
-	die "Could not skip unnecessary pick commands"
-
 	checkout_onto
-	if test -z "$rebase_root" && test ! -d "$rewritten"
-	then
-		require_clean_work_tree "rebase"
-		exec git rebase--helper ${force_rebase:+--no-ff} $allow_empty_message \
-			--continue
-	fi
 	do_rest
 }
 
-git_rebase__interactive () {
-	initiate_action "$action"
-	ret=$?
-	if test $ret = 0; then
-		return 0
-	fi
-
-	setup_reflog_action
-	init_basic_state
-
-	init_revisions_and_shortrevisions
-
-	git rebase--helper --make-script ${keep_empty:+--keep-empty} \
-		$revisions ${restrict_revision+^$restrict_revision} >"$todo" ||
-	die "$(gettext "Could not generate todo list")"
-
-	complete_action
-}
-
-git_rebase__interactive__preserve_merges () {
+git_rebase__preserve_merges () {
 	initiate_action "$action"
 	ret=$?
 	if test $ret = 0; then
