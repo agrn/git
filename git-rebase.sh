@@ -204,7 +204,14 @@ run_specific_rebase () {
 		autosquash=
 	fi
 	. git-rebase--$type
-	git_rebase__${type/-/_}
+
+	if test -z "$preserve_merges"
+	then
+		git_rebase__$type
+	else
+		git_rebase__preserve_merges
+	fi
+
 	ret=$?
 	if test $ret -eq 0
 	then
@@ -471,8 +478,13 @@ fi
 
 if test -n "$interactive_rebase"
 then
-	test -z "$preserve_merges" && type=interactive
-	test -n "$preserve_merges" && type=preserve-merges
+	if test -z "$preserve_merges"
+	then
+		type=interactive
+	else
+		type=preserve-merges
+	fi
+
 	state_dir="$merge_dir"
 elif test -n "$do_merge"
 then
