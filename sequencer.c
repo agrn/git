@@ -4228,7 +4228,7 @@ int append_todo_help(unsigned edit_todo, unsigned keep_empty)
 	struct strbuf buf = STRBUF_INIT;
 	FILE *todo;
 	int ret;
-	const char *msg = _("\nCommands:\n"
+	const char *msg = _("Commands:\n"
 "p, pick <commit> = use commit\n"
 "r, reword <commit> = use commit, but edit the commit message\n"
 "e, edit <commit> = use commit, but stop for amending\n"
@@ -4243,33 +4243,37 @@ int append_todo_help(unsigned edit_todo, unsigned keep_empty)
 ".       message (or the oneline, if no original merge commit was\n"
 ".       specified). Use -c <commit> to reword the commit message.\n"
 "\n"
-"These lines can be re-ordered; they are executed from top to bottom.\n");
+"These lines can be re-ordered; they are executed from top to bottom.");
 
 	todo = fopen_or_warn(rebase_path_todo(), "a");
 	if (!todo)
 		return 1;
 
+	strbuf_add_commented_lines(&buf, "\n", 1);
 	strbuf_add_commented_lines(&buf, msg, strlen(msg));
 
 	if (get_missing_commit_check_level() == CHECK_ERROR)
-		msg = _("\nDo not remove any line. Use 'drop' "
-			 "explicitly to remove a commit.\n");
+		msg = _("Do not remove any line. Use 'drop' "
+			 "explicitly to remove a commit.");
 	else
-		msg = _("\nIf you remove a line here "
-			 "THAT COMMIT WILL BE LOST.\n");
+		msg = _("If you remove a line here "
+			 "THAT COMMIT WILL BE LOST.");
 
+	strbuf_add_commented_lines(&buf, "\n", 1);
 	strbuf_add_commented_lines(&buf, msg, strlen(msg));
 
 	if (edit_todo)
-		msg = _("\nYou are editing the todo file "
+		msg = _("You are editing the todo file "
 			"of an ongoing interactive rebase.\n"
 			"To continue rebase after editing, run:\n"
-			"    git rebase --continue\n\n");
+			"    git rebase --continue");
 	else
-		msg = _("\nHowever, if you remove everything, "
-			"the rebase will be aborted.\n\n");
+		msg = _("However, if you remove everything, "
+			"the rebase will be aborted.");
 
+	strbuf_add_commented_lines(&buf, "\n", 1);
 	strbuf_add_commented_lines(&buf, msg, strlen(msg));
+	strbuf_add_commented_lines(&buf, "\n", 1);
 
 	if (!keep_empty) {
 		msg = _("Note that empty commits are commented out");
