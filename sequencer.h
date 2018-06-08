@@ -103,6 +103,8 @@ void commit_post_rewrite(const struct commit *current_head,
 int detach_onto(struct replay_opts *opts,
 		const char *onto_name, const char *onto,
 		const char *orig_head, unsigned verbose);
+int checkout_onto(struct replay_opts *opts, const char *commit,
+		  int verbose);
 
 #define SUMMARY_INITIAL_COMMIT   (1 << 0)
 #define SUMMARY_SHOW_AUTHOR_DATE (1 << 1)
