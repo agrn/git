@@ -77,7 +77,7 @@ static int is_better_name(struct rev_name *name,
 	return 0;
 }
 
-static void name_rev(struct commit *commit,
+static int name_rev(struct commit *commit,
 		const char *tip_name, timestamp_t taggerdate,
 		int generation, int distance, int from_tag,
 		int deref)
@@ -86,11 +86,12 @@ static void name_rev(struct commit *commit,
 	struct commit_list *parents;
 	int parent_number = 1;
 	char *to_free = NULL;
+	int free_alloc = 1;
 
 	parse_commit(commit);
 
 	if (commit->date < cutoff)
-		return;
+		return 1;
 
 	if (deref) {
 		tip_name = to_free = xstrfmt("%s^0", tip_name);
@@ -111,9 +112,10 @@ copy_data:
 		name->generation = generation;
 		name->distance = distance;
 		name->from_tag = from_tag;
+		free_alloc = 0;
 	} else {
 		free(to_free);
-		return;
+		return 1;
 	}
 
 	for (parents = commit->parents;
@@ -131,15 +133,18 @@ copy_data:
 				new_name = xstrfmt("%.*s^%d", (int)len, tip_name,
 						   parent_number);
 
-			name_rev(parents->item, new_name, taggerdate, 0,
-				 distance + MERGE_TRAVERSAL_WEIGHT,
-				 from_tag, 0);
+			if (name_rev(parents->item, new_name, taggerdate, 0,
+				      distance + MERGE_TRAVERSAL_WEIGHT,
+				      from_tag, 0))
+				free(new_name);
 		} else {
-			name_rev(parents->item, tip_name, taggerdate,
-				 generation + 1, distance + 1,
-				 from_tag, 0);
+			free_alloc &= name_rev(parents->item, tip_name, taggerdate,
+					       generation + 1, distance + 1,
+					       from_tag, 0);
 		}
 	}
+
+	return free_alloc;
 }
 
 static int subpath_matches(const char *path, const char *filter)
