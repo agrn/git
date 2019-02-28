@@ -165,6 +165,7 @@ struct commit_list *commit_list_insert(struct commit *item,
 					struct commit_list **list);
 struct commit_list **commit_list_append(struct commit *commit,
 					struct commit_list **next);
+int commit_list_contains(const struct commit_list *l, struct commit *commit);
 unsigned commit_list_count(const struct commit_list *l);
 struct commit_list *commit_list_insert_by_date(struct commit *item,
 				    struct commit_list **list);

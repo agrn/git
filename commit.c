@@ -524,6 +524,18 @@ struct commit_list *commit_list_insert(struct commit *item, struct commit_list *
 	return new_list;
 }
 
+int commit_list_contains(const struct commit_list *l, struct commit *commit)
+{
+	const struct commit_list *item;
+
+	for (item = l; item != NULL; item = item->next) {
+		if (oideq(&item->item->object.oid, &commit->object.oid))
+			return 1;
+	}
+
+	return 0;
+}
+
 unsigned commit_list_count(const struct commit_list *l)
 {
 	unsigned c = 0;
