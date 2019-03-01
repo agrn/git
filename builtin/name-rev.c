@@ -78,7 +78,7 @@ static int is_better_name(struct rev_name *name,
 static int name_rev(struct commit *commit,
 		const char *tip_name, timestamp_t taggerdate,
 		int generation, int distance, int from_tag,
-		int deref)
+		int deref, struct commit_list *commits)
 {
 	struct rev_name *name = get_commit_rev_name(commit);
 	struct commit_list *parents;
@@ -104,12 +104,18 @@ static int name_rev(struct commit *commit,
 		goto copy_data;
 	} else if (is_better_name(name, taggerdate, distance, from_tag)) {
 copy_data:
-		name->tip_name = tip_name;
+		if (commit_list_contains(commits, commit) ||
+		    commit_list_count(commits) == 0) {
+			name->tip_name = tip_name;
+			free_alloc = 0;
+		} else {
+			name->tip_name = NULL;
+		}
+
 		name->taggerdate = taggerdate;
 		name->generation = generation;
 		name->distance = distance;
 		name->from_tag = from_tag;
-		free_alloc = 0;
 	} else {
 		free(to_free);
 		return 1;
@@ -132,12 +138,12 @@ copy_data:
 
 			if (name_rev(parents->item, new_name, taggerdate, 0,
 				      distance + MERGE_TRAVERSAL_WEIGHT,
-				      from_tag, 0))
+				      from_tag, 0, commits))
 				free(new_name);
 		} else {
 			free_alloc &= name_rev(parents->item, tip_name, taggerdate,
 					       generation + 1, distance + 1,
-					       from_tag, 0);
+					       from_tag, 0, commits);
 		}
 	}
 
@@ -276,7 +282,7 @@ static int name_ref(const char *path, const struct object_id *oid, int flags, vo
 			taggerdate = ((struct commit *)o)->date;
 		path = name_ref_abbrev(path, can_abbreviate_output);
 		name_rev(commit, xstrdup(path), taggerdate, 0, 0,
-			 from_tag, deref);
+			 from_tag, deref, NULL);
 	}
 	return 0;
 }
