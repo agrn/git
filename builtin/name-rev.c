@@ -8,6 +8,7 @@
 #include "parse-options.h"
 #include "sha1-lookup.h"
 #include "commit-slab.h"
+#include "commit-reach.h"
 
 #define CUTOFF_DATE_SLOP 86400 /* one day */
 
@@ -183,6 +184,8 @@ struct name_ref_data {
 	int name_only;
 	struct string_list ref_filters;
 	struct string_list exclude_filters;
+	struct commit **commits;
+	int commits_nr;
 };
 
 static struct tip_table {
@@ -279,13 +282,21 @@ static int name_ref(const char *path, const struct object_id *oid, int flags, vo
 	}
 	if (o && o->type == OBJ_COMMIT) {
 		struct commit *commit = (struct commit *)o;
+		struct commit_list *reachable_commits = NULL;
 		int from_tag = starts_with(path, "refs/tags/");
 
-		if (taggerdate == TIME_MAX)
-			taggerdate = ((struct commit *)o)->date;
-		path = name_ref_abbrev(path, can_abbreviate_output);
-		name_rev(commit, xstrdup(path), taggerdate, 0, 0,
-			 from_tag, deref, NULL);
+		reachable_commits = get_reachable_subset(&commit, 1,
+							 data->commits, data->commits_nr, 0);
+
+		if (commit_list_count(reachable_commits) > 0 || data->commits_nr == 0) {
+			if (taggerdate == TIME_MAX)
+				taggerdate = ((struct commit *)o)->date;
+			path = name_ref_abbrev(path, can_abbreviate_output);
+			name_rev(commit, xstrdup(path), taggerdate, 0, 0,
+				 from_tag, deref, reachable_commits);
+		}
+
+		free_commit_list(reachable_commits);
 	}
 	return 0;
 }
@@ -369,13 +380,53 @@ static char const * const name_rev_usage[] = {
 	NULL
 };
 
-static void name_rev_line(char *p, struct name_ref_data *data)
+static inline int ishex(char p)
+{
+	return isdigit(p) || (p >= 'a' && p <= 'f');
+}
+
+static struct commit **find_commits_in_strbuf(struct strbuf *buf, int *count)
+{
+	int forty = 0;
+	char *p;
+	struct commit **commits = NULL;
+
+	*count = 0;
+
+	for (p = buf->buf; *p; p++) {
+		if (!ishex(*p))
+			forty = 0;
+		else if (++forty == GIT_SHA1_HEXSZ &&
+			 !ishex(*(p+1))) {
+			struct object_id oid;
+			char c = *(p+1);
+
+			*(p+1) = 0;
+			if (!get_oid(p - (GIT_SHA1_HEXSZ -1), &oid)) {
+				struct object *o =
+					parse_object(the_repository, &oid);
+
+				if (o && o->type == OBJ_COMMIT) {
+					struct commit *c = (struct commit *) o;
+
+					REALLOC_ARRAY(commits, (*count) + 1);
+					commits[(*count)++] = c;
+					set_commit_rev_name(c, NULL);
+				}
+			}
+			*(p+1) = c;
+		}
+	}
+
+	return commits;
+}
+
+static void name_rev_buf(char *p, struct name_ref_data *data)
 {
 	struct strbuf buf = STRBUF_INIT;
 	int forty = 0;
 	char *p_start;
 	for (p_start = p; *p; p++) {
-#define ishex(x) (isdigit((x)) || ((x) >= 'a' && (x) <= 'f'))
 		if (!ishex(*p))
 			forty = 0;
 		else if (++forty == GIT_SHA1_HEXSZ &&
@@ -419,7 +470,7 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 {
 	struct object_array revs = OBJECT_ARRAY_INIT;
 	int all = 0, transform_stdin = 0, allow_undefined = 1, always = 0, peel_tag = 0;
-	struct name_ref_data data = { 0, 0, STRING_LIST_INIT_NODUP, STRING_LIST_INIT_NODUP };
+	struct name_ref_data data = { 0, 0, STRING_LIST_INIT_NODUP, STRING_LIST_INIT_NODUP, NULL, 0 };
 	struct option opts[] = {
 		OPT_BOOL(0, "name-only", &data.name_only, N_("print only names (no SHA-1)")),
 		OPT_BOOL(0, "tags", &data.tags_only, N_("only use tags to name the commits")),
@@ -496,19 +547,26 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 
 	if (cutoff)
 		cutoff = cutoff - CUTOFF_DATE_SLOP;
-	for_each_ref(name_ref, &data);
 
 	if (transform_stdin) {
-		char buffer[2048];
+		struct strbuf buf = STRBUF_INIT;
 
-		while (!feof(stdin)) {
-			char *p = fgets(buffer, sizeof(buffer), stdin);
-			if (!p)
-				break;
-			name_rev_line(p, &data);
+		strbuf_read(&buf, STDIN_FILENO, 0);
+		data.commits = find_commits_in_strbuf(&buf, &data.commits_nr);
+
+		if (data.commits_nr > 0) {
+			for_each_ref(name_ref, &data);
+			name_rev_buf(buf.buf, &data);
+		} else {
+			fwrite(buf.buf, buf.len, 1, stdout);
 		}
+
+		free(data.commits);
+		strbuf_release(&buf);
 	} else if (all) {
 		int i, max;
+
+		for_each_ref(name_ref, &data);
 
 		max = get_max_object_index();
 		for (i = 0; i < max; i++) {
@@ -520,6 +578,9 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 		}
 	} else {
 		int i;
+
+		for_each_ref(name_ref, &data);
+
 		for (i = 0; i < revs.nr; i++)
 			show_name(revs.objects[i].item, revs.objects[i].name,
 				  always, allow_undefined, data.name_only);
