@@ -141,11 +141,10 @@ copy_data:
 				      distance + MERGE_TRAVERSAL_WEIGHT,
 				      from_tag, 0, commits))
 				free(new_name);
-		} else {
-			free_alloc &= name_rev(parents->item, tip_name, taggerdate,
-					       generation + 1, distance + 1,
-					       from_tag, 0, commits);
-		}
+		} else if (!name_rev(parents->item, tip_name, taggerdate,
+				     generation + 1, distance + 1,
+				     from_tag, 0, commits))
+			free_alloc = 0;
 	}
 
 	return free_alloc;
