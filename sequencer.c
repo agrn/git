@@ -4898,7 +4898,7 @@ int check_todo_list_from_file(struct repository *r)
 	if (!res)
 		res = todo_list_parse_insn_buffer(r, new_todo.buf.buf, &new_todo);
 	if (!res)
-		res = todo_list_check(&old_todo, &new_todo);
+		res = todo_list_check(&old_todo, &new_todo, NULL);
 	if (res)
 		fprintf(stderr, _(edit_todo_list_advice));
 out:
@@ -5008,7 +5008,7 @@ int complete_action(struct repository *r, struct replay_opts *opts, unsigned fla
 	}
 
 	if (todo_list_parse_insn_buffer(r, new_todo.buf.buf, &new_todo) ||
-	    todo_list_check(todo_list, &new_todo)) {
+	    todo_list_check(todo_list, &new_todo, NULL)) {
 		fprintf(stderr, _(edit_todo_list_advice));
 		checkout_onto(r, opts, onto_name, &onto->object.oid, orig_head);
 		todo_list_release(&new_todo);

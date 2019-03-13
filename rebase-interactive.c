@@ -6,6 +6,8 @@
 #include "commit-slab.h"
 #include "config.h"
 
+static GIT_PATH_FUNC(rebase_path_done, "rebase-merge/done")
+
 enum missing_commit_check_level {
 	MISSING_COMMIT_CHECK_IGNORE = 0,
 	MISSING_COMMIT_CHECK_WARN,
@@ -124,13 +126,27 @@ int edit_todo_list(struct repository *r, struct todo_list *todo_list,
 }
 
 define_commit_slab(commit_seen, unsigned char);
+
+static void mark_commits_as_seen(struct commit_seen *commit_seen,
+				 struct todo_list *list)
+{
+	int i;
+
+	for (i = 0; i < list->nr; i++) {
+		struct commit *commit = list->items[i].commit;
+		if (commit)
+			*commit_seen_at(commit_seen, commit) = 1;
+	}
+}
+
 /*
  * Check if the user dropped some commits by mistake
  * Behaviour determined by rebase.missingCommitsCheck.
  * Check if there is an unrecognized command or a
  * bad SHA-1 in a command.
  */
-int todo_list_check(struct todo_list *old_todo, struct todo_list *new_todo)
+int todo_list_check(struct todo_list *old_todo, struct todo_list *new_todo,
+		    struct todo_list *done)
 {
 	enum missing_commit_check_level check_level = get_missing_commit_check_level();
 	struct strbuf missing = STRBUF_INIT;
@@ -142,12 +158,11 @@ int todo_list_check(struct todo_list *old_todo, struct todo_list *new_todo)
 	if (check_level == MISSING_COMMIT_CHECK_IGNORE)
 		goto leave_check;
 
-	/* Mark the commits in git-rebase-todo as seen */
-	for (i = 0; i < new_todo->nr; i++) {
-		struct commit *commit = new_todo->items[i].commit;
-		if (commit)
-			*commit_seen_at(&commit_seen, commit) = 1;
-	}
+	/* Mark the commits in git-rebase-todo and git-rebase-done as
+	   seen */
+	mark_commits_as_seen(&commit_seen, new_todo);
+	if (done)
+		mark_commits_as_seen(&commit_seen, done);
 
 	/* Find commits in git-rebase-todo.backup yet unseen */
 	for (i = old_todo->nr - 1; i >= 0; i--) {
@@ -185,5 +200,33 @@ int todo_list_check(struct todo_list *old_todo, struct todo_list *new_todo)
 
 leave_check:
 	clear_commit_seen(&commit_seen);
+	return res;
+}
+
+int todo_list_check_against_backup(struct repository *r,
+				   struct todo_list *todo_list)
+{
+	struct todo_list done = TODO_LIST_INIT, initial = TODO_LIST_INIT;
+	int res;
+
+	if (strbuf_read_file(&done.buf, rebase_path_done(), 0) < 0 && errno != ENOENT)
+		return error(_("could not read '%s'"), rebase_path_done());
+
+	strbuf_read_file(&done.buf, rebase_path_done(), 0);
+	todo_list_parse_insn_buffer(r, done.buf.buf, &done);
+
+	if (strbuf_read_file(&initial.buf, rebase_path_todo_backup(), 0) < 0 &&
+	    errno != ENOENT) {
+		todo_list_release(&done);
+		return error(_("could not read '%s'"), rebase_path_done());
+	}
+
+	todo_list_parse_insn_buffer(r, initial.buf.buf, &initial);
+
+	res = todo_list_check(&initial, todo_list, &done);
+
+	todo_list_release(&done);
+	todo_list_release(&initial);
+
 	return res;
 }
