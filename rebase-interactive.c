@@ -95,6 +95,7 @@ int edit_todo_list(struct repository *r, struct todo_list *todo_list,
 {
 	const char *todo_file = rebase_path_todo();
 	unsigned initial = shortrevisions && shortonto;
+	int res = 0;
 
 	/* If the user is editing the todo list, we first try to parse
 	 * it.  If there is an error, we do not return, because the user
@@ -119,10 +120,13 @@ int edit_todo_list(struct repository *r, struct todo_list *todo_list,
 
 	/* For the initial edit, the todo list gets parsed in
 	 * complete_action(). */
-	if (!initial)
-		return todo_list_parse_insn_buffer(r, new_todo->buf.buf, new_todo);
+	if (!initial) {
+		res = todo_list_parse_insn_buffer(r, new_todo->buf.buf, new_todo);
+		if (!res)
+			res = todo_list_check_against_backup(r, new_todo);
+	}
 
-	return 0;
+	return res;
 }
 
 define_commit_slab(commit_seen, unsigned char);
