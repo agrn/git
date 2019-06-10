@@ -50,7 +50,7 @@ Use 'git config rebase.missingCommitsCheck' to change the level of warnings.
 The possible behaviours are: ignore, warn, error.
 EOF
 
-test_expect_failure 'rebase exec respects rebase.missingCommitsCheck = warn' '
+test_expect_success 'rebase exec respects rebase.missingCommitsCheck = warn' '
 	test_config rebase.missingCommitsCheck warn &&
 	git reset --hard HEAD@{2} &&
 	git rebase HEAD~2 --keep-empty -x "echo >$todo" 2>actual.2 &&
@@ -59,7 +59,7 @@ test_expect_failure 'rebase exec respects rebase.missingCommitsCheck = warn' '
 	test 5 = $(git cat-file commit HEAD | sed -ne \$p)
 '
 
-test_expect_failure 'rebase exec respects rebase.missingCommitsCheck = error' '
+test_expect_success 'rebase exec respects rebase.missingCommitsCheck = error' '
 	test_config rebase.missingCommitsCheck error &&
 	git reset --hard HEAD@{2} &&
 	test_must_fail git rebase HEAD~2 --keep-empty -x "echo >$todo" 2>actual.2 &&

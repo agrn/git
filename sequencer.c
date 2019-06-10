@@ -2360,7 +2360,6 @@ static int read_populate_todo(struct repository *r,
 	struct stat st;
 	const char *todo_file = get_todo_path(opts);
 	int res;
-
 	strbuf_reset(&todo_list->buf);
 	if (strbuf_read_file_or_whine(&todo_list->buf, todo_file) < 0)
 		return -1;
@@ -2377,6 +2376,10 @@ static int read_populate_todo(struct repository *r,
 				       "'git rebase --edit-todo'."));
 		return error(_("unusable instruction sheet: '%s'"), todo_file);
 	}
+
+	res = todo_list_check_against_backup(r, todo_list);
+	if (res)
+		return -1;
 
 	if (!todo_list->nr &&
 	    (!is_rebase_i(opts) || !file_exists(rebase_path_done())))

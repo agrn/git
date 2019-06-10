@@ -1373,7 +1373,7 @@ EOF
 
 tail -n 8 <expect >expect.2
 
-test_expect_failure 'rebase --edit-todo respects rebase.missingCommitsCheck = warn' '
+test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = warn' '
 	test_config rebase.missingCommitsCheck warn &&
 	rebase_setup_and_clean missing-commit &&
 	set_fake_editor &&
@@ -1405,7 +1405,7 @@ EOF
 
 tail -n 9 <expect >expect.2
 
-test_expect_failure 'rebase --edit-todo respects rebase.missingCommitsCheck = error' '
+test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = error' '
 	test_config rebase.missingCommitsCheck error &&
 	rebase_setup_and_clean missing-commit &&
 	set_fake_editor &&
