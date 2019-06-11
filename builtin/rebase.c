@@ -393,7 +393,7 @@ static int run_rebase_interactive(struct rebase_options *opts,
 	case ACTION_CONTINUE: {
 		struct replay_opts replay_opts = get_replay_opts(opts);
 
-		ret = sequencer_continue(the_repository, &replay_opts);
+		ret = sequencer_continue(the_repository, &replay_opts, NULL);
 		break;
 	}
 	case ACTION_EDIT_TODO:

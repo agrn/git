@@ -4147,9 +4147,11 @@ static int commit_staged_changes(struct repository *r,
 	return 0;
 }
 
-int sequencer_continue(struct repository *r, struct replay_opts *opts)
+int sequencer_continue(struct repository *r, struct replay_opts *opts,
+		       struct todo_list *p_todo_list)
 {
-	struct todo_list todo_list = TODO_LIST_INIT;
+	struct todo_list todo_list = TODO_LIST_INIT,
+		*ptr_todo = (p_todo_list) ? p_todo_list : &todo_list;
 	int res;
 
 	if (read_and_refresh_cache(r, opts))
@@ -4158,13 +4160,13 @@ int sequencer_continue(struct repository *r, struct replay_opts *opts)
 	if (read_populate_opts(opts))
 		return -1;
 	if (is_rebase_i(opts)) {
-		if ((res = read_populate_todo(r, &todo_list, opts)))
+		if (!p_todo_list && (res = read_populate_todo(r, &todo_list, opts)))
 			goto release_todo_list;
-		if (commit_staged_changes(r, opts, &todo_list))
+		if (commit_staged_changes(r, opts, ptr_todo))
 			return -1;
 	} else if (!file_exists(get_todo_path(opts)))
 		return continue_single_pick(r);
-	else if ((res = read_populate_todo(r, &todo_list, opts)))
+	else if (!p_todo_list && (res = read_populate_todo(r, &todo_list, opts)))
 		goto release_todo_list;
 
 	if (!is_rebase_i(opts)) {
@@ -4179,18 +4181,18 @@ int sequencer_continue(struct repository *r, struct replay_opts *opts)
 			res = error_dirty_index(r, opts);
 			goto release_todo_list;
 		}
-		todo_list.current++;
+		ptr_todo->current++;
 	} else if (file_exists(rebase_path_stopped_sha())) {
 		struct strbuf buf = STRBUF_INIT;
 		struct object_id oid;
 
 		if (read_oneliner(&buf, rebase_path_stopped_sha(), 1) &&
 		    !get_oid_committish(buf.buf, &oid))
-			record_in_rewritten(&oid, peek_command(&todo_list, 0));
+			record_in_rewritten(&oid, peek_command(ptr_todo, 0));
 		strbuf_release(&buf);
 	}
 
-	res = pick_commits(r, &todo_list, opts);
+	res = pick_commits(r, ptr_todo, opts);
 release_todo_list:
 	todo_list_release(&todo_list);
 	return res;
@@ -5025,15 +5027,17 @@ int complete_action(struct repository *r, struct replay_opts *opts, unsigned fla
 		return error_errno(_("could not write '%s'"), todo_file);
 	}
 
-	todo_list_release(&new_todo);
-
 	if (checkout_onto(r, opts, onto_name, &oid, orig_head))
 		return -1;
 
 	if (require_clean_work_tree(r, "rebase", "", 1, 1))
 		return -1;
 
-	return sequencer_continue(r, opts);
+	todo_list_write_total_nr(&new_todo);
+	res = sequencer_continue(r, opts, &new_todo);
+	todo_list_release(&new_todo);
+
+	return res;
 }
 
 struct subject2item_entry {
