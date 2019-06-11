@@ -127,7 +127,8 @@ const char *todo_item_get_arg(struct todo_list *todo_list,
 void sequencer_init_config(struct replay_opts *opts);
 int sequencer_pick_revisions(struct repository *repo,
 			     struct replay_opts *opts);
-int sequencer_continue(struct repository *repo, struct replay_opts *opts);
+int sequencer_continue(struct repository *repo, struct replay_opts *opts,
+		       struct todo_list *p_todo_list);
 int sequencer_rollback(struct repository *repo, struct replay_opts *opts);
 int sequencer_remove_state(struct replay_opts *opts);
 
