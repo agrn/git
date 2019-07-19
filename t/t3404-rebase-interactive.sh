@@ -1350,7 +1350,7 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = ig
 	rebase_setup_and_clean missing-commit &&
 	set_fake_editor &&
 	test_must_fail env FAKE_LINES="1 2 bad 3 4" \
-		git rebase -i --root >/dev/null 2>stderr &&
+		git rebase -i --root >/dev/null 2>&1 &&
 	FAKE_LINES="1 2 4" git rebase --edit-todo &&
 	git rebase --continue 2>actual &&
 	test D = $(git cat-file commit HEAD | sed -ne \$p) &&
@@ -1378,7 +1378,7 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = wa
 	rebase_setup_and_clean missing-commit &&
 	set_fake_editor &&
 	test_must_fail env FAKE_LINES="1 2 3 4 bad 5" \
-		git rebase -i --root >/dev/null 2>stderr &&
+		git rebase -i --root >/dev/null 2>&1 &&
 	FAKE_LINES="1 2 3 4" git rebase --edit-todo 2>actual &&
 	test_i18ncmp expect actual &&
 	git rebase --continue 2>actual.2 &&
@@ -1410,7 +1410,7 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = er
 	rebase_setup_and_clean missing-commit &&
 	set_fake_editor &&
 	test_must_fail env FAKE_LINES="1 2 bad 3 4" \
-		git rebase -i --root >/dev/null 2>stderr &&
+		git rebase -i --root >/dev/null 2>&1 &&
 	test_must_fail env FAKE_LINES="1 2 4" \
 		git rebase --edit-todo 2>actual &&
 	test_i18ncmp expect actual &&
