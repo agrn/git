@@ -1371,8 +1371,6 @@ The possible behaviours are: ignore, warn, error.
 
 EOF
 
-tail -n 8 <expect >expect.2
-
 test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = warn' '
 	test_config rebase.missingCommitsCheck warn &&
 	rebase_setup_and_clean missing-commit &&
@@ -1381,13 +1379,14 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = wa
 		git rebase -i --root >/dev/null 2>&1 &&
 	FAKE_LINES="1 2 3 4" git rebase --edit-todo 2>actual &&
 	test_i18ncmp expect actual &&
-	git rebase --continue 2>actual.2 &&
-	head -n 8 <actual.2 >actual &&
-	test_i18ncmp expect.2 actual &&
+	git rebase --continue 2>actual &&
+	head -n8 actual >actual.2 &&
+	tail -n8 expect >expect.2 &&
+	test_i18ncmp expect.2 actual.2 &&
 	test D = $(git cat-file commit HEAD | sed -ne \$p) &&
 	test_i18ngrep \
 		"Successfully rebased and updated refs/heads/missing-commit" \
-		actual.2
+		actual
 '
 
 cat >expect <<EOF
@@ -1403,8 +1402,6 @@ The possible behaviours are: ignore, warn, error.
 
 EOF
 
-tail -n 9 <expect >expect.2
-
 test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = error' '
 	test_config rebase.missingCommitsCheck error &&
 	rebase_setup_and_clean missing-commit &&
@@ -1415,6 +1412,7 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = er
 		git rebase --edit-todo 2>actual &&
 	test_i18ncmp expect actual &&
 	test_must_fail git rebase --continue 2>actual &&
+	tail -n9 expect >expect.2 &&
 	test_i18ncmp expect.2 actual &&
 	cp .git/rebase-merge/git-rebase-todo.backup \
 		.git/rebase-merge/git-rebase-todo &&
