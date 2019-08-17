@@ -1366,7 +1366,7 @@ test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = ig
 		actual
 '
 
-test_expect_failure 'rebase --edit-todo respects rebase.missingCommitsCheck = warn' '
+test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = warn' '
 	cat >expect <<-EOF &&
 	error: invalid line 1: badcmd $(git rev-list --pretty=oneline --abbrev-commit -1 master~4)
 	Warning: some commits may have been dropped accidentally.
@@ -1395,7 +1395,7 @@ test_expect_failure 'rebase --edit-todo respects rebase.missingCommitsCheck = wa
 		actual
 '
 
-test_expect_failure 'rebase --edit-todo respects rebase.missingCommitsCheck = error' '
+test_expect_success 'rebase --edit-todo respects rebase.missingCommitsCheck = error' '
 	cat >expect <<-EOF &&
 	error: invalid line 1: badcmd $(git rev-list --pretty=oneline --abbrev-commit -1 master~4)
 	Warning: some commits may have been dropped accidentally.
