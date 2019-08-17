@@ -117,8 +117,13 @@ int edit_todo_list(struct repository *r, struct todo_list *todo_list,
 
 	/* For the initial edit, the todo list gets parsed in
 	 * complete_action(). */
-	if (!initial)
-		return todo_list_parse_insn_buffer(r, new_todo->buf.buf, new_todo);
+	if (!initial) {
+		int res = todo_list_parse_insn_buffer(r, new_todo->buf.buf, new_todo);
+		if (!res)
+			res = todo_list_check(todo_list, new_todo);
+
+		return res;
+	}
 
 	return 0;
 }
