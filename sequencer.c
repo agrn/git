@@ -5140,15 +5140,17 @@ int complete_action(struct repository *r, struct replay_opts *opts, unsigned fla
 		return error_errno(_("could not write '%s'"), todo_file);
 	}
 
-	todo_list_release(&new_todo);
-
 	if (checkout_onto(r, opts, onto_name, &oid, orig_head))
 		return -1;
 
 	if (require_clean_work_tree(r, "rebase", "", 1, 1))
 		return -1;
 
-	return sequencer_continue(r, opts);
+	todo_list_write_total_nr(&new_todo);
+	res = pick_commits(r, &new_todo, opts);
+	todo_list_release(&new_todo);
+
+	return res;
 }
 
 struct subject2item_entry {
