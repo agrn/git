@@ -1966,4 +1966,6 @@ int print_sha1_ellipsis(void);
 /* Return 1 if the file is empty or does not exists, 0 otherwise. */
 int is_empty_or_missing_file(const char *filename);
 
+const char *get_last_index_file(struct repository *r);
+
 #endif /* CACHE_H */

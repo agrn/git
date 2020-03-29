@@ -3158,6 +3158,17 @@ static int clean_shared_index_files(const char *current_hex)
 	return 0;
 }
 
+const char *get_last_index_file(struct repository *r)
+{
+	struct split_index *si = r->index->split_index;
+
+	if (si) {
+		return git_path("sharedindex.%s", oid_to_hex(&si->base_oid));
+	} else {
+		return r->index_file;
+	}
+}
+
 static int write_shared_index(struct index_state *istate,
 			      struct tempfile **temp)
 {
