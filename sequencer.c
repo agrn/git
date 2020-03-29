@@ -1783,7 +1783,24 @@ static int do_pick_commit(struct repository *r,
 				       NULL, 0))
 			return error_dirty_index(r, opts);
 	}
-	discard_index(r->index);
+
+	{
+		struct stat st;
+		const char *index_file = get_last_index_file(r);
+
+		if (stat(index_file, &st))
+			discard_index(r->index);
+		else if (r->index->timestamp.sec &&
+#ifdef USE_NSEC
+		    (r->index->timestamp.sec < (unsigned int)st.st_mtime ||
+		     (r->index->timestamp.sec == (unsigned int)st.st_mtime &&
+		      r->index->timestamp.nsec < ST_MTIME_NSEC(st)))
+#else
+		    r->index->timestamp.sec < (unsigned int)st.st_mtime
+#endif
+		    )
+			discard_index(r->index);
+	}
 
 	if (!commit->parents)
 		parent = NULL;
