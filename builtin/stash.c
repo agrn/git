@@ -1059,17 +1059,14 @@ static int stash_working_tree(struct stash_info *info, const struct pathspec *ps
 	struct rev_info rev;
 	struct child_process cp_upd_index = CHILD_PROCESS_INIT;
 	struct strbuf diff_output = STRBUF_INIT;
-	struct index_state istate = { NULL };
 
 	init_revisions(&rev, NULL);
 	copy_pathspec(&rev.prune_data, ps);
 
-	set_alternate_index_output(stash_index_path.buf);
 	if (reset_tree(&info->i_tree, 0, 0)) {
 		ret = -1;
 		goto done;
 	}
-	set_alternate_index_output(NULL);
 
 	rev.diffopt.output_format = DIFF_FORMAT_CALLBACK;
 	rev.diffopt.format_callback = add_diff_to_buf;
@@ -1091,8 +1088,6 @@ static int stash_working_tree(struct stash_info *info, const struct pathspec *ps
 	argv_array_pushl(&cp_upd_index.args, "update-index",
 			 "--ignore-skip-worktree-entries",
 			 "-z", "--add", "--remove", "--stdin", NULL);
-	argv_array_pushf(&cp_upd_index.env_array, "GIT_INDEX_FILE=%s",
-			 stash_index_path.buf);
 
 	if (pipe_command(&cp_upd_index, diff_output.buf, diff_output.len,
 			 NULL, 0, NULL, 0)) {
@@ -1100,19 +1095,16 @@ static int stash_working_tree(struct stash_info *info, const struct pathspec *ps
 		goto done;
 	}
 
-	if (write_index_as_tree(&info->w_tree, &istate, stash_index_path.buf, 0,
-				NULL)) {
+	discard_cache();
+	if (write_cache_as_tree(&info->w_tree, 0, NULL) ||
+	    reset_tree(&info->i_tree, 0, 1))
 		ret = -1;
-		goto done;
-	}
 
 done:
-	discard_index(&istate);
 	UNLEAK(rev);
 	object_array_clear(&rev.pending);
 	clear_pathspec(&rev.prune_data);
 	strbuf_release(&diff_output);
-	remove_path(stash_index_path.buf);
 	return ret;
 }
 
