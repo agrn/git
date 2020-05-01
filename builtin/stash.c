@@ -995,51 +995,24 @@ static int stash_patch(struct stash_info *info, const struct pathspec *ps,
 		       struct strbuf *out_patch, int quiet)
 {
 	int ret = 0;
-	struct child_process cp_read_tree = CHILD_PROCESS_INIT;
 	struct child_process cp_diff_tree = CHILD_PROCESS_INIT;
-	struct index_state istate = { NULL };
-	char *old_index_env = NULL, *old_repo_index_file;
 
-	remove_path(stash_index_path.buf);
-
-	cp_read_tree.git_cmd = 1;
-	argv_array_pushl(&cp_read_tree.args, "read-tree", "HEAD", NULL);
-	argv_array_pushf(&cp_read_tree.env_array, "GIT_INDEX_FILE=%s",
-			 stash_index_path.buf);
-	if (run_command(&cp_read_tree)) {
-		ret = -1;
-		goto done;
-	}
+	if (reset_tree(&info->b_commit, 0, 1))
+		return -1;
 
 	/* Find out what the user wants. */
-	old_repo_index_file = the_repository->index_file;
-	the_repository->index_file = stash_index_path.buf;
-	old_index_env = xstrdup_or_null(getenv(INDEX_ENVIRONMENT));
-	setenv(INDEX_ENVIRONMENT, the_repository->index_file, 1);
-
 	ret = run_add_interactive(NULL, "--patch=stash", ps);
 
-	the_repository->index_file = old_repo_index_file;
-	if (old_index_env && *old_index_env)
-		setenv(INDEX_ENVIRONMENT, old_index_env, 1);
-	else
-		unsetenv(INDEX_ENVIRONMENT);
-	FREE_AND_NULL(old_index_env);
-
 	/* State of the working tree. */
-	if (write_index_as_tree(&info->w_tree, &istate, stash_index_path.buf, 0,
-				NULL)) {
-		ret = -1;
-		goto done;
-	}
+	discard_cache();
+	if (write_cache_as_tree(&info->w_tree, 0, NULL))
+		return -1;
 
 	cp_diff_tree.git_cmd = 1;
 	argv_array_pushl(&cp_diff_tree.args, "diff-tree", "-p", "-U1", "HEAD",
 			 oid_to_hex(&info->w_tree), "--", NULL);
-	if (pipe_command(&cp_diff_tree, NULL, 0, out_patch, 0, NULL, 0)) {
-		ret = -1;
-		goto done;
-	}
+	if (pipe_command(&cp_diff_tree, NULL, 0, out_patch, 0, NULL, 0))
+		return -1;
 
 	if (!out_patch->len) {
 		if (!quiet)
@@ -1047,9 +1020,9 @@ static int stash_patch(struct stash_info *info, const struct pathspec *ps,
 		ret = 1;
 	}
 
-done:
-	discard_index(&istate);
-	remove_path(stash_index_path.buf);
+	if (reset_tree(&info->i_tree, 0, 1))
+		return -1;
+
 	return ret;
 }
 
