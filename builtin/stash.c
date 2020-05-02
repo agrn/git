@@ -954,41 +954,36 @@ static int check_changes(const struct pathspec *ps, int include_untracked,
 static int save_untracked_files(struct stash_info *info, struct strbuf *msg,
 				struct strbuf files)
 {
-	int ret = 0;
 	struct strbuf untracked_msg = STRBUF_INIT;
 	struct child_process cp_upd_index = CHILD_PROCESS_INIT;
-	struct index_state istate = { NULL };
+
+	if (reset_tree(the_hash_algo->empty_tree, 0, 1))
+		return -1;
 
 	cp_upd_index.git_cmd = 1;
 	argv_array_pushl(&cp_upd_index.args, "update-index", "-z", "--add",
 			 "--remove", "--stdin", NULL);
-	argv_array_pushf(&cp_upd_index.env_array, "GIT_INDEX_FILE=%s",
-			 stash_index_path.buf);
+
+	if (pipe_command(&cp_upd_index, files.buf, files.len, NULL, 0,
+			 NULL, 0))
+		return -1;
+
+	discard_cache();
+	if (write_cache_as_tree(&info->u_tree, 0, NULL))
+		return -1;
 
 	strbuf_addf(&untracked_msg, "untracked files on %s\n", msg->buf);
-	if (pipe_command(&cp_upd_index, files.buf, files.len, NULL, 0,
-			 NULL, 0)) {
-		ret = -1;
-		goto done;
-	}
-
-	if (write_index_as_tree(&info->u_tree, &istate, stash_index_path.buf, 0,
-				NULL)) {
-		ret = -1;
-		goto done;
-	}
-
 	if (commit_tree(untracked_msg.buf, untracked_msg.len,
 			&info->u_tree, NULL, &info->u_commit, NULL, NULL)) {
-		ret = -1;
-		goto done;
+		strbuf_release(&untracked_msg);
+		return -1;
 	}
 
-done:
-	discard_index(&istate);
+	/* Do not reset the tree, as either stash_patch() or
+	 * stash_working_tree() will do it. */
+
 	strbuf_release(&untracked_msg);
-	remove_path(stash_index_path.buf);
-	return ret;
+	return 0;
 }
 
 static int stash_patch(struct stash_info *info, const struct pathspec *ps,
