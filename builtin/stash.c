@@ -228,7 +228,7 @@ static int clear_stash(int argc, const char **argv, const char *prefix)
 	return do_clear_stash();
 }
 
-static int reset_tree(struct object_id *i_tree, int update, int reset)
+static int reset_tree(const struct object_id *i_tree, int update, int reset)
 {
 	int nr_trees = 1;
 	struct unpack_trees_options opts;
