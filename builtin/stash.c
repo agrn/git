@@ -359,29 +359,16 @@ static int restore_untracked(struct object_id *u_tree)
 	int res;
 	struct child_process cp = CHILD_PROCESS_INIT;
 
-	/*
-	 * We need to run restore files from a given index, but without
-	 * affecting the current index, so we use GIT_INDEX_FILE with
-	 * run_command to fork processes that will not interfere.
-	 */
-	cp.git_cmd = 1;
-	argv_array_push(&cp.args, "read-tree");
-	argv_array_push(&cp.args, oid_to_hex(u_tree));
-	argv_array_pushf(&cp.env_array, "GIT_INDEX_FILE=%s",
-			 stash_index_path.buf);
-	if (run_command(&cp)) {
-		remove_path(stash_index_path.buf);
+	if (reset_tree(u_tree, 0, 0))
 		return -1;
-	}
 
 	child_process_init(&cp);
 	cp.git_cmd = 1;
 	argv_array_pushl(&cp.args, "checkout-index", "--all", NULL);
-	argv_array_pushf(&cp.env_array, "GIT_INDEX_FILE=%s",
-			 stash_index_path.buf);
 
 	res = run_command(&cp);
-	remove_path(stash_index_path.buf);
+	discard_cache();
+
 	return res;
 }
 
@@ -395,6 +382,7 @@ static int do_apply_stash(const char *prefix, struct stash_info *info,
 	struct object_id index_tree;
 	struct commit *result;
 	const struct object_id *bases[1];
+	struct strbuf newly_staged = STRBUF_INIT;
 
 	read_cache_preload(NULL);
 	if (refresh_and_write_cache(REFRESH_QUIET, 0, 0))
@@ -433,9 +421,6 @@ static int do_apply_stash(const char *prefix, struct stash_info *info,
 		}
 	}
 
-	if (info->has_u && restore_untracked(&info->u_tree))
-		return error(_("could not restore untracked files from stash"));
-
 	init_merge_options(&o, the_repository);
 
 	o.branch1 = "Updated upstream";
@@ -463,24 +448,27 @@ static int do_apply_stash(const char *prefix, struct stash_info *info,
 		return ret;
 	}
 
+	if (!has_index && get_newly_staged(&newly_staged, &c_tree)) {
+		strbuf_release(&newly_staged);
+		return -1;
+	}
+
+	if (info->has_u && restore_untracked(&info->u_tree)) {
+		strbuf_release(&newly_staged);
+		return error(_("could not restore untracked files from stash"));
+	}
+
 	if (has_index) {
 		if (reset_tree(&index_tree, 0, 0))
 			return -1;
 	} else {
-		struct strbuf out = STRBUF_INIT;
-
-		if (get_newly_staged(&out, &c_tree)) {
-			strbuf_release(&out);
-			return -1;
-		}
-
 		if (reset_tree(&c_tree, 0, 1)) {
-			strbuf_release(&out);
+			strbuf_release(&newly_staged);
 			return -1;
 		}
 
-		ret = update_index(&out);
-		strbuf_release(&out);
+		ret = update_index(&newly_staged);
+		strbuf_release(&newly_staged);
 		if (ret)
 			return -1;
 
