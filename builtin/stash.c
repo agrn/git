@@ -88,7 +88,6 @@ static const char * const git_stash_save_usage[] = {
 };
 
 static const char *ref_stash = "refs/stash";
-static struct strbuf stash_index_path = STRBUF_INIT;
 
 /*
  * w_commit is set to the commit containing the working tree
@@ -1505,8 +1504,6 @@ static int save_stash(int argc, const char **argv, const char *prefix)
 
 int cmd_stash(int argc, const char **argv, const char *prefix)
 {
-	pid_t pid = getpid();
-	const char *index_file;
 	struct argv_array args = ARGV_ARRAY_INIT;
 
 	struct option options[] = {
@@ -1522,10 +1519,6 @@ int cmd_stash(int argc, const char **argv, const char *prefix)
 
 	argc = parse_options(argc, argv, prefix, options, git_stash_usage,
 			     PARSE_OPT_KEEP_UNKNOWN | PARSE_OPT_KEEP_DASHDASH);
-
-	index_file = get_index_file();
-	strbuf_addf(&stash_index_path, "%s.stash.%" PRIuMAX, index_file,
-		    (uintmax_t)pid);
 
 	if (!argc)
 		return !!push_stash(0, NULL, prefix, 0);
