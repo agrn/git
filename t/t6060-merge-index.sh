@@ -72,7 +72,7 @@ test_expect_success 'merge-one-file fails without a work tree' '
 	(cd bare.git &&
 	 GIT_INDEX_FILE=$PWD/merge.index &&
 	 export GIT_INDEX_FILE &&
-	 test_must_fail git merge-index git-merge-one-file -a
+	 test_must_fail git merge-index --use=merge-one-file -a
 	)
 '
 

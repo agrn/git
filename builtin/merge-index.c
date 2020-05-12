@@ -38,7 +38,7 @@ static int merge_one_file_spawn(struct index_state *istate,
 int cmd_merge_index(int argc, const char **argv, const char *prefix)
 {
 	int i, force_file = 0, err = 0, one_shot = 0, quiet = 0;
-	merge_fn merge_action = merge_one_file_spawn;
+	merge_fn merge_action;
 	struct lock_file lock = LOCK_INIT;
 	struct repository *r = the_repository;
 	const char *use_internal = NULL;
@@ -69,10 +69,13 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 
 	if (skip_prefix(pgm, "--use=", &use_internal)) {
 		if (!strcmp(use_internal, "merge-one-file"))
-			pgm = "git-merge-one-file";
+			merge_action = merge_one_file_func;
 		else
 			die(_("git merge-index: unknown internal program %s"), use_internal);
-	}
+
+		repo_hold_locked_index(r, &lock, LOCK_DIE_ON_ERROR);
+	} else
+		merge_action = merge_one_file_spawn;
 
 	for (; i < argc; i++) {
 		const char *arg = argv[i];
