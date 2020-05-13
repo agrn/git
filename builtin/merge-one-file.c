@@ -5,54 +5,48 @@
 #include "dir.h"
 #include "lockfile.h"
 #include "object-store.h"
-#include "run-command.h"
 #include "xdiff-interface.h"
-
-static int create_temp_file(const struct object_id *oid, struct strbuf *path)
-{
-	struct child_process cp = CHILD_PROCESS_INIT;
-	struct strbuf err = STRBUF_INIT;
-	int ret;
-
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "unpack-file", oid_to_hex(oid), NULL);
-	ret = pipe_command(&cp, NULL, 0, path, 0, &err, 0);
-	if (!ret && path->len > 0)
-		strbuf_trim_trailing_newline(path);
-
-	fprintf(stderr, "%.*s", (int) err.len, err.buf);
-	strbuf_release(&err);
-
-	return ret;
-}
 
 static int add_to_index_cacheinfo(unsigned int mode,
 				  const struct object_id *oid, const char *path)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
+	struct cache_entry *ce;
+	int len, option;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "update-index", "--add", "--cacheinfo", NULL);
-	argv_array_pushf(&cp.args, "%o,%s,%s", mode, oid_to_hex(oid), path);
-	return run_command(&cp);
-}
+	if (!verify_path(path, mode))
+		return error("Invalid path '%s'", path);
 
-static int remove_from_index(const char *path)
-{
-	struct child_process cp = CHILD_PROCESS_INIT;
+	len = strlen(path);
+	ce = make_empty_cache_entry(&the_index, len);
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "update-index", "--remove", "--", path, NULL);
-	return run_command(&cp);
+	oidcpy(&ce->oid, oid);
+	memcpy(ce->name, path, len);
+	ce->ce_flags = create_ce_flags(0);
+	ce->ce_namelen = len;
+	ce->ce_mode = create_ce_mode(mode);
+	if (assume_unchanged)
+		ce->ce_flags |= CE_VALID;
+	option = ADD_CACHE_OK_TO_ADD | ADD_CACHE_OK_TO_REPLACE;
+	if (add_cache_entry(ce, option))
+		return error("%s: cannot add to the index", path);
+
+	return 0;
 }
 
 static int checkout_from_index(const char *path)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
+	struct checkout state;
+	struct cache_entry *ce;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "checkout-index", "-u", "-f", "--", path, NULL);
-	return run_command(&cp);
+	state.istate = &the_index;
+	state.force = 1;
+	state.base_dir = "";
+	state.base_dir_len = 0;
+
+	ce = cache_file_exists(path, strlen(path), 0);
+	if (checkout_entry(ce, &state, NULL, NULL) < 0)
+		return error("%s: cannot checkout file", path);
+	return 0;
 }
 
 static int merge_one_file_deleted(const struct object_id *orig_blob,
@@ -74,7 +68,9 @@ static int merge_one_file_deleted(const struct object_id *orig_blob,
 			remove_path(path);
 	}
 
-	return remove_from_index(path);
+	if (remove_file_from_cache(path))
+		return error("%s: cannot remove from the index", path);
+	return 0;
 }
 
 static int do_merge_one_file(const struct object_id *orig_blob,
@@ -82,61 +78,50 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 			     const struct object_id *their_blob, const char *path,
 			     unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode)
 {
-	int ret, source, dest;
-	struct strbuf src1 = STRBUF_INIT, src2 = STRBUF_INIT, orig = STRBUF_INIT;
-	struct child_process cp_merge = CHILD_PROCESS_INIT,
-		cp_checkout = CHILD_PROCESS_INIT,
-		cp_update = CHILD_PROCESS_INIT;
+	int ret, i, dest;
+	mmbuffer_t result = {NULL, 0};
+	mmfile_t mmfs[3];
+	xmparam_t xmp = {{0}};
+	struct cache_entry *ce;
 
-	if (our_mode == S_IFLNK || their_mode == S_IFLNK) {
-		fprintf(stderr, "ERROR: %s: Not merging symbolic link changes.\n", path);
-		return 1;
-	} else if (our_mode == S_IFGITLINK || their_mode == S_IFGITLINK) {
-		fprintf(stderr, "ERROR: %s: Not merging conflicting submodule changes.\n",
-			path);
-		return 1;
-	}
+	if (our_mode == S_IFLNK || their_mode == S_IFLNK)
+		return error(_("%s: Not merging symbolic link changes."), path);
+	else if (our_mode == S_IFGITLINK || their_mode == S_IFGITLINK)
+		return error(_("%s: Not merging conflicting submodule changes."), path);
 
-	create_temp_file(our_blob, &src1);
-	create_temp_file(their_blob, &src2);
+	read_mmblob(mmfs + 0, our_blob);
+	read_mmblob(mmfs + 2, their_blob);
 
 	if (orig_blob) {
 		printf("Auto-merging %s\n", path);
-		create_temp_file(orig_blob, &orig);
+		read_mmblob(mmfs + 1, orig_blob);
 	} else {
 		printf("Added %s in both, but differently.\n", path);
-		create_temp_file(the_hash_algo->empty_blob, &orig);
+		read_mmblob(mmfs + 1, the_hash_algo->empty_blob);
 	}
 
-	cp_merge.git_cmd = 1;
-	argv_array_pushl(&cp_merge.args, "merge-file", src1.buf, orig.buf, src2.buf,
-			 NULL);
-	ret = run_command(&cp_merge);
+	xmp.level = XDL_MERGE_ZEALOUS_ALNUM;
+	xmp.style = 0;
+	xmp.favor = 0;
 
-	if (ret != 0)
+	ret = xdl_merge(mmfs + 1, mmfs + 0, mmfs + 2, &xmp, &result);
+
+	for (i = 0; i < 3; i++)
+		free(mmfs[i].ptr);
+
+	if (ret > 127)
 		ret = 1;
 
-	cp_checkout.git_cmd = 1;
-	argv_array_pushl(&cp_checkout.args, "checkout-index", "-f", "--stage=2",
-			 "--", path, NULL);
-	if (run_command(&cp_checkout))
-		return 1;
+	ce = cache_file_exists(path, strlen(path), 0);
+	if (!ce)
+		BUG("file is not present in the cache?");
 
-	source = open(src1.buf, O_RDONLY);
-	dest = open(path, O_WRONLY | O_TRUNC);
-
-	copy_fd(source, dest);
-
-	close(source);
+	unlink(path);
+	dest = open(path, O_WRONLY | O_CREAT, ce->ce_mode);
+	write_in_full(dest, result.ptr, result.size);
 	close(dest);
 
-	unlink(orig.buf);
-	unlink(src1.buf);
-	unlink(src2.buf);
-
-	strbuf_release(&src1);
-	strbuf_release(&src2);
-	strbuf_release(&orig);
+	free(result.ptr);
 
 	if (ret) {
 		fprintf(stderr, "ERROR: ");
@@ -156,9 +141,7 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 		return 1;
 	}
 
-	cp_update.git_cmd = 1;
-	argv_array_pushl(&cp_update.args, "update-index", "--", path, NULL);
-	return run_command(&cp_update);
+	return add_file_to_cache(path, 0);
 }
 
 static int merge_one_file(const struct object_id *orig_blob,
@@ -219,10 +202,16 @@ int cmd_merge_one_file(int argc, const char **argv, const char *prefix)
 {
 	struct object_id orig_blob, our_blob, their_blob,
 		*p_orig_blob = NULL, *p_our_blob = NULL, *p_their_blob = NULL;
-	unsigned int orig_mode = 0, our_mode = 0, their_mode = 0;
+	unsigned int orig_mode = 0, our_mode = 0, their_mode = 0, ret;
+	struct lock_file lock = LOCK_INIT;
 
 	if (argc != 8)
 		usage(builtin_merge_one_file_usage);
+
+	if (read_cache() < 0)
+		die("invalid index");
+
+	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 
 	if (!get_oid(argv[1], &orig_blob)) {
 		p_orig_blob = &orig_blob;
@@ -239,6 +228,13 @@ int cmd_merge_one_file(int argc, const char **argv, const char *prefix)
 		their_mode = strtol(argv[7], NULL, 8);
 	}
 
-	return merge_one_file(p_orig_blob, p_our_blob, p_their_blob, argv[4],
-			      orig_mode, our_mode, their_mode);
+	ret = merge_one_file(p_orig_blob, p_our_blob, p_their_blob, argv[4],
+			     orig_mode, our_mode, their_mode);
+
+	if (ret) {
+		rollback_lock_file(&lock);
+		return ret;
+	}
+
+	return write_locked_index(&the_index, &lock, COMMIT_LOCK);
 }
