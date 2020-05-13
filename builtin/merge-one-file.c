@@ -68,8 +68,13 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 	mmbuffer_t result = {NULL, 0};
 	mmfile_t mmfs[3];
 	xmparam_t xmp = {{0}};
-	struct child_process cp = CHILD_PROCESS_INIT;
 	struct lock_file lock = LOCK_INIT;
+	struct cache_entry *ce;
+
+	if (read_cache() < 0)
+		die("corrupted cache");
+
+	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 
 	if (our_mode == S_IFLNK || their_mode == S_IFLNK) {
 		fprintf(stderr, "ERROR: %s: Not merging symbolic link changes.\n", path);
@@ -103,12 +108,12 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 	if (ret > 127)
 		ret = 1;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "checkout-index", "-f", "--stage=2", "--", path, NULL);
-	if (run_command(&cp))
-		return 1;
+	ce = cache_file_exists(path, strlen(path), 0);
+	if (!ce)
+		BUG("file is not present in the cache?");
 
-	dest = open(path, O_WRONLY | O_TRUNC, 0644);
+	unlink(path);
+	dest = open(path, O_WRONLY | O_CREAT, ce->ce_mode);
 	write_in_full(dest, result.ptr, result.size);
 	close(dest);
 
@@ -132,10 +137,6 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 		return 1;
 	}
 
-	if (read_cache() < 0)
-		die("cache corrupted");
-
-	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 	add_file_to_cache(path, 0);
 	return write_locked_index(&the_index, &lock, COMMIT_LOCK);
 }
