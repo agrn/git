@@ -1,6 +1,7 @@
 #ifndef MERGE_STRATEGIES_H
 #define MERGE_STRATEGIES_H
 
+#include "commit.h"
 #include "object.h"
 
 int merge_three_way(struct repository *r,
@@ -34,5 +35,9 @@ int merge_index_path(struct repository *r, int oneshot, int quiet,
 		     const char *path, merge_fn fn, void *data);
 int merge_all_index(struct repository *r, int oneshot, int quiet,
 		    merge_fn fn, void *data);
+
+int merge_strategies_resolve(struct repository *r,
+			     struct commit_list *bases, const char *head_arg,
+			     struct commit_list *remote);
 
 #endif /* MERGE_STRATEGIES_H */

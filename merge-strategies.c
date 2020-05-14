@@ -1,7 +1,10 @@
 #include "cache.h"
+#include "cache-tree.h"
 #include "dir.h"
+#include "lockfile.h"
 #include "merge-strategies.h"
 #include "run-command.h"
+#include "unpack-trees.h"
 #include "xdiff-interface.h"
 
 static int checkout_from_index(struct index_state *istate, const char *path,
@@ -296,4 +299,96 @@ int merge_all_index(struct repository *r, int oneshot, int quiet,
 	}
 
 	return err;
+}
+
+static int fast_forward(struct repository *r, struct tree_desc *t,
+			int nr, int aggressive)
+{
+	struct unpack_trees_options opts;
+	struct lock_file lock = LOCK_INIT;
+
+	refresh_index(r->index, REFRESH_QUIET, NULL, NULL, NULL);
+	repo_hold_locked_index(r, &lock, LOCK_DIE_ON_ERROR);
+
+	memset(&opts, 0, sizeof(opts));
+	opts.head_idx = 1;
+	opts.src_index = r->index;
+	opts.dst_index = r->index;
+	opts.merge = 1;
+	opts.update = 1;
+	opts.aggressive = aggressive;
+
+	if (nr == 1)
+		opts.fn = oneway_merge;
+	else if (nr == 2) {
+		opts.fn = twoway_merge;
+		opts.initial_checkout = is_index_unborn(r->index);
+	} else if (nr >= 3) {
+		opts.fn = threeway_merge;
+		opts.head_idx = nr - 1;
+	}
+
+	if (unpack_trees(nr, t, &opts))
+		return -1;
+
+	if (write_locked_index(r->index, &lock, COMMIT_LOCK))
+		return error(_("unable to write new index file"));
+
+	return 0;
+}
+
+static int add_tree(struct tree *tree, struct tree_desc *t)
+{
+	if (parse_tree(tree))
+		return -1;
+
+	init_tree_desc(t, tree->buffer, tree->size);
+	return 0;
+}
+
+int merge_strategies_resolve(struct repository *r,
+			     struct commit_list *bases, const char *head_arg,
+			     struct commit_list *remote)
+{
+	struct tree_desc t[MAX_UNPACK_TREES];
+	struct object_id head, oid;
+	struct commit_list *i;
+	int nr = 0;
+
+	if (head_arg)
+		get_oid(head_arg, &head);
+
+	puts(_("Trying simple merge."));
+
+	for (i = bases; i && i->item; i = i->next) {
+		if (add_tree(repo_get_commit_tree(r, i->item), t + (nr++)))
+			return 2;
+	}
+
+	if (head_arg) {
+		struct tree *tree = parse_tree_indirect(&head);
+		if (add_tree(tree, t + (nr++)))
+			return 2;
+	}
+
+	if (remote && add_tree(repo_get_commit_tree(r, remote->item), t + (nr++)))
+		return 2;
+
+	if (fast_forward(r, t, nr, 1))
+		return 2;
+
+	if (write_index_as_tree(&oid, r->index, r->index_file,
+				WRITE_TREE_SILENT, NULL)) {
+		int ret;
+		struct lock_file lock = LOCK_INIT;
+
+		puts(_("Simple merge failed, trying Automatic merge."));
+		repo_hold_locked_index(r, &lock, LOCK_DIE_ON_ERROR);
+		ret = merge_all_index(r, 1, 0, merge_one_file_func, NULL);
+
+		write_locked_index(r->index, &lock, COMMIT_LOCK);
+		return !!ret;
+	}
+
+	return 0;
 }
