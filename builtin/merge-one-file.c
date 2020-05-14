@@ -18,7 +18,7 @@ static int create_temp_file(const struct object_id *oid, struct strbuf *path)
 	argv_array_pushl(&cp.args, "unpack-file", oid_to_hex(oid), NULL);
 	ret = pipe_command(&cp, NULL, 0, path, 0, &err, 0);
 	if (!ret && path->len > 0)
-		strbuf_setlen(path, path->len - 1);
+		strbuf_trim_trailing_newline(path);
 
 	fprintf(stderr, "%.*s", (int) err.len, err.buf);
 	strbuf_release(&err);
