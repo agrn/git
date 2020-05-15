@@ -52,7 +52,7 @@ static int merge_one_file_deleted(const struct object_id *orig_blob,
 	if (our_blob) {
 		printf("Removing %s\n", path);
 
-		if (access(path, F_OK) == 0)
+		if (file_exists(path))
 			remove_path(path);
 	}
 
@@ -156,7 +156,7 @@ static int merge_one_file(const struct object_id *orig_blob,
 	} else if (!orig_blob && !our_blob && their_blob) {
 		printf("Adding %s\n", path);
 
-		if (access(path, F_OK) == 0) {
+		if (file_exists(path)) {
 			fprintf(stderr, "ERROR: untracked %s is overwritten by the merge.\n", path);
 			return 1;
 		}
