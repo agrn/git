@@ -182,7 +182,7 @@ static int merge_one_file(const struct object_id *orig_blob,
 		return do_merge_one_file(orig_blob, our_blob, their_blob, path,
 					 orig_mode, our_mode, their_mode);
 	else {
-		fprintf(stderr, "ERROR: %s: Not handling case %s -> %s -> %s",
+		fprintf(stderr, "ERROR: %s: Not handling case %s -> %s -> %s\n",
 			path, oid_to_hex(orig_blob), oid_to_hex(our_blob), oid_to_hex(their_blob));
 		return 1;
 	}
