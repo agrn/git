@@ -43,11 +43,9 @@ static int merge_one_file_deleted(const struct object_id *orig_blob,
 				  unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode)
 {
 	if ((our_blob && orig_mode != our_mode) ||
-	    (their_blob && orig_mode != their_mode)) {
-		fprintf(stderr, "ERROR: File %s deleted on one branch but had its\n", path);
-		fprintf(stderr, "ERROR: permissions changed on the other.\n");
-		return 1;
-	}
+	    (their_blob && orig_mode != their_mode))
+		return error(_("File %s deleted on one branch but had its "
+			       "permissions changed on the other."), path);
 
 	if (our_blob) {
 		printf("Removing %s\n", path);
@@ -76,14 +74,10 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 
 	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 
-	if (our_mode == S_IFLNK || their_mode == S_IFLNK) {
-		fprintf(stderr, "ERROR: %s: Not merging symbolic link changes.\n", path);
-		return 1;
-	} else if (our_mode == S_IFGITLINK || their_mode == S_IFGITLINK) {
-		fprintf(stderr, "ERROR: %s: Not merging conflicting submodule changes.\n",
-			path);
-		return 1;
-	}
+	if (our_mode == S_IFLNK || their_mode == S_IFLNK)
+		return error(_("%s: Not merging symbolic link changes."), path);
+	else if (our_mode == S_IFGITLINK || their_mode == S_IFGITLINK)
+		return error(_("%s: Not merging conflicting submodule changes."), path);
 
 	read_mmblob(mmfs + 0, our_blob);
 	read_mmblob(mmfs + 2, their_blob);
@@ -156,22 +150,18 @@ static int merge_one_file(const struct object_id *orig_blob,
 	} else if (!orig_blob && !our_blob && their_blob) {
 		printf("Adding %s\n", path);
 
-		if (file_exists(path)) {
-			fprintf(stderr, "ERROR: untracked %s is overwritten by the merge.\n", path);
-			return 1;
-		}
+		if (file_exists(path))
+			return error(_("untracked %s is overwritten by the merge.\n"), path);
 
 		if (add_to_index_cacheinfo(their_mode, their_blob, path))
 			return 1;
 		return checkout_from_index(path);
 	} else if (!orig_blob && our_blob && their_blob &&
 		   oideq(our_blob, their_blob)) {
-		if (our_mode != their_mode) {
-			fprintf(stderr, "ERROR: File %s added identically in both branches,", path);
-			fprintf(stderr, "ERROR: but permissions conflict %o->%o.\n",
-				our_mode, their_mode);
-			return 1;
-		}
+		if (our_mode != their_mode)
+			return error(_("File %s added identically in both branches, "
+				       "but permissions conflict %o->%o."),
+				     path, our_mode, their_mode);
 
 		printf("Adding %s\n", path);
 
@@ -181,11 +171,9 @@ static int merge_one_file(const struct object_id *orig_blob,
 	} else if (our_blob && their_blob)
 		return do_merge_one_file(orig_blob, our_blob, their_blob, path,
 					 orig_mode, our_mode, their_mode);
-	else {
-		fprintf(stderr, "ERROR: %s: Not handling case %s -> %s -> %s\n",
+	else
+		return error(_("%s: Not handling case %s -> %s -> %s"),
 			path, oid_to_hex(orig_blob), oid_to_hex(our_blob), oid_to_hex(their_blob));
-		return 1;
-	}
 
 	return 0;
 }
