@@ -163,9 +163,19 @@ static int merge_one_file(const struct object_id *orig_blob,
 	} else if (our_blob && their_blob)
 		return do_merge_one_file(orig_blob, our_blob, their_blob, path,
 					 orig_mode, our_mode, their_mode);
-	else
+	else {
+		char *orig_hex = "", *our_hex = "", *their_hex = "";
+
+		if (orig_blob)
+			orig_hex = oid_to_hex(orig_blob);
+		if (our_blob)
+			our_hex = oid_to_hex(our_blob);
+		if (their_blob)
+			their_hex = oid_to_hex(their_blob);
+
 		return error(_("%s: Not handling case %s -> %s -> %s"),
-			path, oid_to_hex(orig_blob), oid_to_hex(our_blob), oid_to_hex(their_blob));
+			path, orig_hex, our_hex, their_hex);
+	}
 
 	return 0;
 }
