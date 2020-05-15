@@ -4,7 +4,6 @@
  *
  * Original script (git-merge-octopus.sh) by Junio Hamano. */
 
-#define USE_THE_INDEX_COMPATIBILITY_MACROS
 #include "cache.h"
 #include "builtin.h"
 #include "commit-reach.h"
