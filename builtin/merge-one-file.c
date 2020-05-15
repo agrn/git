@@ -11,30 +11,53 @@
 static int add_to_index_cacheinfo(unsigned int mode,
 				  const struct object_id *oid, const char *path)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
+	struct cache_entry *ce;
+	int len, option;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "update-index", "--add", "--cacheinfo", NULL);
-	argv_array_pushf(&cp.args, "%o,%s,%s", mode, oid_to_hex(oid), path);
-	return run_command(&cp);
+	if (!verify_path(path, mode))
+		return error("Invalid path '%s'", path);
+
+	len = strlen(path);
+	ce = make_empty_cache_entry(&the_index, len);
+
+	oidcpy(&ce->oid, oid);
+	memcpy(ce->name, path, len);
+	ce->ce_flags = create_ce_flags(0);
+	ce->ce_namelen = len;
+	ce->ce_mode = create_ce_mode(mode);
+	if (assume_unchanged)
+		ce->ce_flags |= CE_VALID;
+	option = ADD_CACHE_OK_TO_ADD | ADD_CACHE_OK_TO_REPLACE;
+	if (add_cache_entry(ce, option))
+		return error("%s: cannot add to the index", path);
+
+	return 0;
 }
 
 static int remove_from_index(const char *path)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
+	int ret;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "update-index", "--remove", "--", path, NULL);
-	return run_command(&cp);
+	ret = remove_file_from_cache(path);
+	if (ret)
+		return error("%s: cannot remove from the index", path);
+	return 0;
 }
 
 static int checkout_from_index(const char *path)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
+	struct checkout state;
+	struct cache_entry *ce;
 
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "checkout-index", "-u", "-f", "--", path, NULL);
-	return run_command(&cp);
+	state.istate = &the_index;
+	state.force = 1;
+	state.base_dir = "";
+	state.base_dir_len = 0;
+
+	ce = cache_file_exists(path, strlen(path), 0);
+	if (checkout_entry(ce, &state, NULL, NULL) < 0)
+		return error("%s: cannot checkout file", path);
+	return 0;
 }
 
 static int merge_one_file_deleted(const struct object_id *orig_blob,
@@ -66,13 +89,7 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 	mmbuffer_t result = {NULL, 0};
 	mmfile_t mmfs[3];
 	xmparam_t xmp = {{0}};
-	struct lock_file lock = LOCK_INIT;
 	struct cache_entry *ce;
-
-	if (read_cache() < 0)
-		die("corrupted cache");
-
-	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 
 	if (our_mode == S_IFLNK || their_mode == S_IFLNK)
 		return error(_("%s: Not merging symbolic link changes."), path);
@@ -123,8 +140,7 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 		return 1;
 	}
 
-	add_file_to_cache(path, 0);
-	return write_locked_index(&the_index, &lock, COMMIT_LOCK);
+	return add_file_to_cache(path, 0);
 }
 
 static int merge_one_file(const struct object_id *orig_blob,
@@ -189,10 +205,16 @@ int cmd_merge_one_file(int argc, const char **argv, const char *prefix)
 {
 	struct object_id orig_blob, our_blob, their_blob,
 		*p_orig_blob = NULL, *p_our_blob = NULL, *p_their_blob = NULL;
-	unsigned int orig_mode = 0, our_mode = 0, their_mode = 0;
+	unsigned int orig_mode = 0, our_mode = 0, their_mode = 0, ret;
+	struct lock_file lock = LOCK_INIT;
 
 	if (argc != 8)
 		usage(builtin_merge_one_file_usage);
+
+	if (read_cache() < 0)
+		die("invalid index");
+
+	hold_locked_index(&lock, LOCK_DIE_ON_ERROR);
 
 	if (!get_oid(argv[1], &orig_blob)) {
 		p_orig_blob = &orig_blob;
@@ -209,6 +231,13 @@ int cmd_merge_one_file(int argc, const char **argv, const char *prefix)
 		their_mode = strtol(argv[7], NULL, 8);
 	}
 
-	return merge_one_file(p_orig_blob, p_our_blob, p_their_blob, argv[4],
-			      orig_mode, our_mode, their_mode);
+	ret = merge_one_file(p_orig_blob, p_our_blob, p_their_blob, argv[4],
+			     orig_mode, our_mode, their_mode);
+
+	if (ret) {
+		rollback_lock_file(&lock);
+		return ret;
+	}
+
+	return write_locked_index(&the_index, &lock, COMMIT_LOCK);
 }
