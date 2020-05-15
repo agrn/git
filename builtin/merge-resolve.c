@@ -55,6 +55,9 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 	return 0;
 }
 
+static const char builtin_merge_resolve_usage[] =
+	"git merge-resolve <bases>... -- <head> <remote>";
+
 int cmd_merge_resolve(int argc, const char **argv, const char *prefix)
 {
 	int i, sep_seen = 0;
@@ -62,11 +65,16 @@ int cmd_merge_resolve(int argc, const char **argv, const char *prefix)
 	struct object_id head, remote,
 		*p_head = NULL, *p_remote = NULL;
 
+	if (argc < 5)
+		usage(builtin_merge_resolve_usage);
+
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "==") == 0)
 			sep_seen = 1;
+		else if (strcmp(argv[i], "-h") == 0)
+			usage(builtin_merge_resolve_usage);
 		else if (sep_seen && !p_head) {
 			get_oid(argv[i], &head);
 			p_head = &head;
