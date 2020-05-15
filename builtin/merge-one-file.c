@@ -74,10 +74,7 @@ static int merge_one_file_deleted(const struct object_id *orig_blob,
 			remove_path(path);
 	}
 
-	if (remove_from_index(path))
-		return error("%s: cannot remove from the index", path);
-
-	return 0;
+	return remove_from_index(path);
 }
 
 static int do_merge_one_file(const struct object_id *orig_blob,
