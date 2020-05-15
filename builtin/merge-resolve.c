@@ -37,8 +37,10 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 	puts("Trying simple merge.");
 
 	cp_write.git_cmd = 1;
+	cp_write.no_stdout = 1;
+	cp_write.no_stderr = 1;
 	argv_array_push(&cp_write.args, "write-tree");
-	if (pipe_command(&cp_write, NULL, 0, NULL, 0, NULL, 0)) {
+	if (run_command(&cp_write)) {
 		struct child_process cp_merge = CHILD_PROCESS_INIT;
 
 		puts("Simple merge failed, trying Automatic merge.");
