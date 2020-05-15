@@ -114,19 +114,11 @@ static int do_merge_one_file(const struct object_id *orig_blob,
 	free(result.ptr);
 
 	if (ret) {
-		fprintf(stderr, "ERROR: ");
-
-		if (!orig_blob) {
-			fprintf(stderr, "content conflict");
-			if (our_mode != their_mode)
-				fprintf(stderr, ", ");
-		}
-
+		if (!orig_blob)
+			error(_("content conflict in %s"), path);
 		if (our_mode != their_mode)
-			fprintf(stderr, "permissions conflict: %o->%o,%o",
-				orig_mode, our_mode, their_mode);
-
-		fprintf(stderr, " in %s\n", path);
+			error(_("permission conflict: %o->%o,%o in %s"),
+			      orig_mode, our_mode, their_mode, path);
 
 		return 1;
 	}
