@@ -88,6 +88,7 @@ static int write_tree(struct tree **reference_tree)
 
 	strbuf_release(&read_tree);
 	strbuf_release(&err);
+	child_process_clear(&cp);
 
 	return ret;
 }
@@ -120,15 +121,16 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 
 		pretty_name = get_pretty(oid);
 		c = lookup_commit_reference(the_repository, oid);
-		common = get_merge_bases_many_dirty(c, references, reference_commit);
+		common = get_merge_bases_many(c, references, reference_commit);
 
-		if (commit_list_count(common) == 0)
+		if (!common)
 			die(_("Unable to find common commit with %s"), pretty_name);
 
 		for (l = common; l && !oideq(&l->item->object.oid, oid); l = l->next);
 
 		if (l) {
 			printf(_("Already up to date with %s\n"), pretty_name);
+			free_commit_list(common);
 			continue;
 		}
 
@@ -155,12 +157,12 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 			if (ret)
 				goto out;
 
-			references = 1;
+			child_process_clear(&cp);
+			references = 0;
 			write_tree(&reference_tree);
 		} else {
 			struct tree *next = NULL;
 			struct child_process cp = CHILD_PROCESS_INIT;
-			
 
 			non_ff_merge = 1;
 			printf(_("Trying simple merge with %s\n"), pretty_name);
@@ -179,6 +181,8 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 				goto out;
 			}
 
+			child_process_clear(&cp);
+
 			if (write_tree(&next)) {
 				struct child_process cp = CHILD_PROCESS_INIT;
 				puts(_("Simple merge did not work, trying automatic merge."));
@@ -189,6 +193,7 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 				if (run_command(&cp))
 					ret = 1;
 
+				child_process_clear(&cp);
 				write_tree(&next);
 			}
 
@@ -209,6 +214,8 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 	int i, sep_seen = 0;
 	struct oid_array bases = OID_ARRAY_INIT, remotes = OID_ARRAY_INIT;
 	struct object_id head, *p_head = NULL;
+	struct child_process cp = CHILD_PROCESS_INIT;
+	struct strbuf files = STRBUF_INIT;
 
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
@@ -233,6 +240,28 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 	 * instead. */
 	if (remotes.nr < 2)
 		return 2;
+
+	cp.git_cmd = 1;
+	argv_array_pushl(&cp.args, "diff-index", "--cached",
+			 "--name-only", "HEAD", "--", NULL);
+	pipe_command(&cp, NULL, 0, &files, 0, NULL, 0);
+	child_process_clear(&cp);
+
+	if (files.len > 0) {
+		struct strbuf **s, **b;
+
+		s = strbuf_split(&files, '\n');
+
+		fprintf(stderr, _("Error: Your local changes to the following "
+				  "files would be overwritten by merge\n"));
+
+		for (b = s; *b; b++)
+			fprintf(stderr, "    %.*s", (int)(*b)->len, (*b)->buf);
+
+		strbuf_list_free(s);
+		strbuf_release(&files);
+		return 2;
+	}
 
 	return merge_octopus(&bases, p_head, &remotes);
 }
