@@ -4,11 +4,11 @@
             "owner": "git-test-suite",
             "pattern": [
                 {
-                    "regexp": "^([^ :]+\\.sh):(\\d+): (error|warning|info):\\s+(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "severity": 3,
-                    "message": 4
+                    "regexp": "^(.*)(error|warning|info):\\([^ :]+\\.sh):(\\d+)\\)$",
+                    "file": 3,
+                    "line": 4,
+                    "severity": 2,
+                    "message": 1
                 }
             ]
         }
