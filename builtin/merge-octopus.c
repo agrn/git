@@ -209,6 +209,9 @@ out:
 	return ret;
 }
 
+static const char builtin_merge_octopus_usage[] =
+	"git merge-octopus [<bases>...] -- <head> <remote1> <remote2> [<remotes>...]";
+
 int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 {
 	int i, sep_seen = 0;
@@ -217,11 +220,16 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 	struct child_process cp = CHILD_PROCESS_INIT;
 	struct strbuf files = STRBUF_INIT;
 
+	if (argc < 5)
+		usage(builtin_merge_octopus_usage);
+
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--") == 0)
 			sep_seen = 1;
+		else if (strcmp(argv[i], "-h") == 0)
+			usage(builtin_merge_octopus_usage);
 		else if (sep_seen && !p_head) {
 			if (!get_oid(argv[i], &head))
 				p_head = &head;
