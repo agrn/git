@@ -3,7 +3,6 @@
  * Junio C Hamano.  The rewritten version is Copyright (c) 2020 Alban
  * Gruin. */
 
-#define USE_THE_INDEX_COMPATIBILITY_MACROS
 #include "cache.h"
 #include "builtin.h"
 #include "run-command.h"
