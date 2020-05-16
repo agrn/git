@@ -5,7 +5,6 @@
 #include "dir.h"
 #include "lockfile.h"
 #include "object-store.h"
-#include "run-command.h"
 #include "xdiff-interface.h"
 
 static int add_to_index_cacheinfo(unsigned int mode,
@@ -31,16 +30,6 @@ static int add_to_index_cacheinfo(unsigned int mode,
 	if (add_cache_entry(ce, option))
 		return error("%s: cannot add to the index", path);
 
-	return 0;
-}
-
-static int remove_from_index(const char *path)
-{
-	int ret;
-
-	ret = remove_file_from_cache(path);
-	if (ret)
-		return error("%s: cannot remove from the index", path);
 	return 0;
 }
 
@@ -77,7 +66,9 @@ static int merge_one_file_deleted(const struct object_id *orig_blob,
 			remove_path(path);
 	}
 
-	return remove_from_index(path);
+	if (remove_file_from_cache(path))
+		return error("%s: cannot remove from the index", path);
+	return 0;
 }
 
 static int do_merge_one_file(const struct object_id *orig_blob,
