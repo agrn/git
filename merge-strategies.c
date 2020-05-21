@@ -11,7 +11,7 @@ static int add_to_index_cacheinfo(struct index_state *istate,
 	int len, option;
 
 	if (!verify_path(path, mode))
-		return error("Invalid path '%s'", path);
+		return error(_("Invalid path '%s'"), path);
 
 	len = strlen(path);
 	ce = make_empty_cache_entry(istate, len);
@@ -25,7 +25,7 @@ static int add_to_index_cacheinfo(struct index_state *istate,
 		ce->ce_flags |= CE_VALID;
 	option = ADD_CACHE_OK_TO_ADD | ADD_CACHE_OK_TO_REPLACE;
 	if (add_index_entry(istate, ce, option))
-		return error("%s: cannot add to the index", path);
+		return error(_("%s: cannot add to the index"), path);
 
 	return 0;
 }
@@ -42,7 +42,7 @@ static int checkout_from_index(struct index_state *istate, const char *path)
 
 	ce = index_file_exists(istate, path, strlen(path), 0);
 	if (checkout_entry(ce, &state, NULL, NULL) < 0)
-		return error("%s: cannot checkout file", path);
+		return error(_("%s: cannot checkout file"), path);
 	return 0;
 }
 
