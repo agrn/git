@@ -191,6 +191,17 @@ int merge_strategies_one_file(struct repository *r,
 	return 0;
 }
 
+int merge_one_file_cb(const struct object_id *orig_blob,
+		      const struct object_id *our_blob,
+		      const struct object_id *their_blob, const char *path,
+		      unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode,
+		      void *data)
+{
+	return merge_strategies_one_file((struct repository *)data,
+					 orig_blob, our_blob, their_blob, path,
+					 orig_mode, our_mode, their_mode);
+}
+
 int merge_program_cb(const struct object_id *orig_blob,
 		     const struct object_id *our_blob,
 		     const struct object_id *their_blob, const char *path,
