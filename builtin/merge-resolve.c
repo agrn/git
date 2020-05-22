@@ -4,42 +4,72 @@
  * Gruin. */
 
 #include "cache.h"
+#include "cache-tree.h"
 #include "builtin.h"
+#include "lockfile.h"
 #include "run-command.h"
+#include "unpack-trees.h"
+
+static int add_tree(const struct object_id *oid, struct tree_desc *t)
+{
+	struct tree *tree;
+
+	tree = parse_tree_indirect(oid);
+	if (parse_tree(tree))
+		return -1;
+
+	init_tree_desc(t, tree->buffer, tree->size);
+	return 0;
+}
 
 static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 			 const struct object_id *remote)
 {
 	int i;
-	struct child_process cp_update = CHILD_PROCESS_INIT,
-		cp_read = CHILD_PROCESS_INIT,
-		cp_write = CHILD_PROCESS_INIT;
+	struct lock_file lock = LOCK_INIT;
+	struct tree_desc t[MAX_UNPACK_TREES];
+	struct unpack_trees_options opts;
+	struct object_id oid;
 
-	cp_update.git_cmd = 1;
-	argv_array_pushl(&cp_update.args, "update-index", "-q", "--refresh", NULL);
-	run_command(&cp_update);
+	repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
+	refresh_index(the_repository->index, 0, NULL, NULL, NULL);
 
-	cp_read.git_cmd = 1;
-	argv_array_pushl(&cp_read.args, "read-tree", "-u", "-m", "--aggressive", NULL);
+	memset(&opts, 0, sizeof(opts));
+	opts.src_index = the_repository->index;
+	opts.dst_index = the_repository->index;
+	opts.update = 1;
+	opts.merge = 1;
+	opts.aggressive = 1;
 
-	for (i = 0; i < bases->nr; i++)
-		argv_array_push(&cp_read.args, oid_to_hex(bases->oid + i));
+	for (i = 0; i < bases->nr; i++) {
+		if (add_tree(bases->oid + i, t + i))
+			goto out;
+	}
 
-	if (head)
-		argv_array_push(&cp_read.args, oid_to_hex(head));
-	if (remote)
-		argv_array_push(&cp_read.args, oid_to_hex(remote));
+	if (head && add_tree(head, t + (++i)))
+		goto out;
+	if (remote && add_tree(remote, t + (++i)))
+		goto out;
 
-	if (run_command(&cp_read))
-		return 2;
+	opts.head_idx = 1;
+	if (i == 1)
+		opts.fn = oneway_merge;
+	else if (i == 2) {
+		opts.fn = twoway_merge;
+		opts.initial_checkout = is_index_unborn(the_repository->index);
+	} else if (i >= 3) {
+		opts.fn = threeway_merge;
+		opts.head_idx = i - 1;
+	}
+
+	if (unpack_trees(i, t, &opts))
+		goto out;
 
 	puts("Trying simple merge.");
+	write_locked_index(the_repository->index, &lock, COMMIT_LOCK);
 
-	cp_write.git_cmd = 1;
-	cp_write.no_stdout = 1;
-	cp_write.no_stderr = 1;
-	argv_array_push(&cp_write.args, "write-tree");
-	if (run_command(&cp_write)) {
+	if (write_index_as_tree(&oid, the_repository->index,
+				the_repository->index_file, 0, NULL)) {
 		struct child_process cp_merge = CHILD_PROCESS_INIT;
 
 		puts("Simple merge failed, trying Automatic merge.");
@@ -52,6 +82,10 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 	}
 
 	return 0;
+
+ out:
+	rollback_lock_file(&lock);
+	return 2;
 }
 
 static const char builtin_merge_resolve_usage[] =
@@ -66,6 +100,10 @@ int cmd_merge_resolve(int argc, const char **argv, const char *prefix)
 
 	if (argc < 5)
 		usage(builtin_merge_resolve_usage);
+
+	setup_work_tree();
+	if (repo_read_index(the_repository) < 0)
+		die("invalid index");
 
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
