@@ -35,6 +35,7 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 	refresh_index(the_repository->index, 0, NULL, NULL, NULL);
 
 	memset(&opts, 0, sizeof(opts));
+	opts.head_idx = 1;
 	opts.src_index = the_repository->index;
 	opts.dst_index = the_repository->index;
 	opts.update = 1;
@@ -46,12 +47,11 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 			goto out;
 	}
 
-	if (head && add_tree(head, t + (++i)))
+	if (head && add_tree(head, t + (i++)))
 		goto out;
-	if (remote && add_tree(remote, t + (++i)))
+	if (remote && add_tree(remote, t + (i++)))
 		goto out;
 
-	opts.head_idx = 1;
 	if (i == 1)
 		opts.fn = oneway_merge;
 	else if (i == 2) {
