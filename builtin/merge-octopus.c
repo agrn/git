@@ -5,6 +5,7 @@
  * Original script (git-merge-octopus.sh) by Junio Hamano. */
 
 #include "cache.h"
+#include "cache-tree.h"
 #include "builtin.h"
 #include "commit-reach.h"
 #include "lockfile.h"
@@ -28,66 +29,63 @@ static char *get_pretty(struct object_id *oid)
 	return pretty;
 }
 
-/* static int reset_tree(struct object_id **trees, int nr, int update, int reset) */
-/* { */
-/* 	int nr_trees = 1; */
-/* 	struct unpack_trees_options opts; */
-/* 	struct tree_desc t[MAX_UNPACK_TREES]; */
-/* 	struct tree *tree; */
-/* 	struct lock_file lock_file = LOCK_INIT; */
+static int fast_forward(const struct object_id *oids, int nr, int aggressive)
+{
+	int i;
+	struct tree_desc t[MAX_UNPACK_TREES];
+	struct unpack_trees_options opts;
+	struct lock_file lock = LOCK_INIT;
 
-/* 	read_cache_preload(NULL); */
-/* 	if (refresh_cache(REFRESH_QUIET)) */
-/* 		return -1; */
+	repo_read_index_preload(the_repository, NULL, 0);
+	if (refresh_index(the_repository->index, REFRESH_QUIET, NULL, NULL, NULL))
+		return -1;
 
-/* 	hold_locked_index(&lock_file, LOCK_DIE_ON_ERROR); */
+	repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
 
-/* 	memset(&opts, 0, sizeof(opts)); */
+	memset(&opts, 0, sizeof(opts));
+	opts.head_idx = 1;
+	opts.src_index = the_repository->index;
+	opts.dst_index = the_repository->index;
+	opts.merge = 1;
+	opts.update = 1;
+	opts.aggressive = aggressive;
 
-/* 	tree = parse_tree_indirect(i_tree); */
-/* 	if (parse_tree(tree)) */
-/* 		return -1; */
+	for (i = 0; i < nr; i++) {
+		struct tree *tree;
+		tree = parse_tree_indirect(oids + i);
+		if (parse_tree(tree))
+			return -1;
+		init_tree_desc(t + i, tree->buffer, tree->size);
+	}
 
-/* 	init_tree_desc(t, tree->buffer, tree->size); */
+	if (nr == 1)
+		opts.fn = oneway_merge;
+	else if (nr == 2) {
+		opts.fn = twoway_merge;
+		opts.initial_checkout = is_index_unborn(the_repository->index);
+	} else if (nr >= 3) {
+		opts.fn = threeway_merge;
+		opts.head_idx = nr - 1;
+	}
 
-/* 	opts.head_idx = 1; */
-/* 	opts.src_index = &the_index; */
-/* 	opts.dst_index = &the_index; */
-/* 	opts.merge = 1; */
-/* 	opts.reset = reset; */
-/* 	opts.update = update; */
-/* 	opts.fn = oneway_merge; */
+	if (unpack_trees(nr, t, &opts))
+		return -1;
 
-/* 	if (unpack_trees(nr_trees, t, &opts)) */
-/* 		return -1; */
+	if (write_locked_index(the_repository->index, &lock, COMMIT_LOCK))
+		return error(_("unable to write new index file"));
 
-/* 	if (write_locked_index(&the_index, &lock_file, COMMIT_LOCK)) */
-/* 		return error(_("unable to write new index file")); */
-
-/* 	return 0; */
-/* } */
+	return 0;
+}
 
 static int write_tree(struct tree **reference_tree)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
-	struct strbuf read_tree = STRBUF_INIT, err = STRBUF_INIT;
 	struct object_id oid;
 	int ret;
 
-	cp.git_cmd = 1;
-	argv_array_push(&cp.args, "write-tree");
-	ret = pipe_command(&cp, NULL, 0, &read_tree, 0, &err, 0);
-	if (err.len > 0)
-		fputs(err.buf, stderr);
-
-	strbuf_trim_trailing_newline(&read_tree);
-	get_oid(read_tree.buf, &oid);
-
-	*reference_tree = lookup_tree(the_repository, &oid);
-
-	strbuf_release(&read_tree);
-	strbuf_release(&err);
-	child_process_clear(&cp);
+	ret = write_index_as_tree(&oid, the_repository->index,
+				  the_repository->index_file, 0, NULL);
+	if (!ret)
+		*reference_tree = lookup_tree(the_repository, &oid);
 
 	return ret;
 }
@@ -143,44 +141,36 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 		}
 
 		if (!non_ff_merge && can_ff) {
-			struct child_process cp = CHILD_PROCESS_INIT;
-
+			struct object_id oids[2];
 			printf(_("Fast-forwarding to: %s\n"), pretty_name);
 
-			cp.git_cmd = 1;
-			argv_array_pushl(&cp.args, "read-tree", "-u", "-m", NULL);
-			argv_array_push(&cp.args, oid_to_hex(head));
-			argv_array_push(&cp.args, oid_to_hex(oid));
+			oidcpy(oids, head);
+			oidcpy(oids + 1, oid);
 
-			ret = run_command(&cp);
+			ret = fast_forward(oids, 2, 0);
 			if (ret)
 				goto out;
 
-			child_process_clear(&cp);
 			references = 0;
 			write_tree(&reference_tree);
 		} else {
+			int j = 0;
 			struct tree *next = NULL;
-			struct child_process cp = CHILD_PROCESS_INIT;
+			struct object_id oids[MAX_UNPACK_TREES];
 
 			non_ff_merge = 1;
 			printf(_("Trying simple merge with %s\n"), pretty_name);
 
-			cp.git_cmd = 1;
-			argv_array_pushl(&cp.args, "read-tree", "-u", "-m", "--aggressive", NULL);
-
 			for (l = common; l; l = l->next)
-				argv_array_push(&cp.args, oid_to_hex(&l->item->object.oid));
+				oidcpy(oids + (j++), &l->item->object.oid);
 
-			argv_array_push(&cp.args, oid_to_hex(&reference_tree->object.oid));
-			argv_array_push(&cp.args, oid_to_hex(oid));
+			oidcpy(oids + (j++), &reference_tree->object.oid);
+			oidcpy(oids + (j++), oid);
 
-			if (run_command(&cp)) {
+			if (fast_forward(oids, j, 1)) {
 				ret = 2;
 				goto out;
 			}
-
-			child_process_clear(&cp);
 
 			if (write_tree(&next)) {
 				struct child_process cp = CHILD_PROCESS_INIT;
@@ -191,6 +181,9 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 						 "git-merge-one-file", "-a", NULL);
 				if (run_command(&cp))
 					ret = 1;
+
+				discard_index(the_repository->index);
+				refresh_index(the_repository->index, 0, NULL, NULL, NULL);
 
 				child_process_clear(&cp);
 				write_tree(&next);
@@ -221,6 +214,10 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 
 	if (argc < 5)
 		usage(builtin_merge_octopus_usage);
+
+	setup_work_tree();
+	if (repo_read_index(the_repository) < 0)
+		die("corrupted cache");
 
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
