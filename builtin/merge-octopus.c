@@ -5,33 +5,70 @@
  * Original script (git-merge-octopus.sh) by Junio Hamano. */
 
 #include "cache.h"
+#include "cache-tree.h"
 #include "builtin.h"
 #include "commit-reach.h"
 #include "lockfile.h"
-#include "run-command.h"
+#include "merge-strategies.h"
 #include "unpack-trees.h"
+
+static int fast_forward(const struct object_id *oids, int nr, int aggressive)
+{
+	int i;
+	struct tree_desc t[MAX_UNPACK_TREES];
+	struct unpack_trees_options opts;
+	struct lock_file lock = LOCK_INIT;
+
+	repo_read_index_preload(the_repository, NULL, 0);
+	if (refresh_index(the_repository->index, REFRESH_QUIET, NULL, NULL, NULL))
+		return -1;
+
+	repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
+
+	memset(&opts, 0, sizeof(opts));
+	opts.head_idx = 1;
+	opts.src_index = the_repository->index;
+	opts.dst_index = the_repository->index;
+	opts.merge = 1;
+	opts.update = 1;
+	opts.aggressive = aggressive;
+
+	for (i = 0; i < nr; i++) {
+		struct tree *tree;
+		tree = parse_tree_indirect(oids + i);
+		if (parse_tree(tree))
+			return -1;
+		init_tree_desc(t + i, tree->buffer, tree->size);
+	}
+
+	if (nr == 1)
+		opts.fn = oneway_merge;
+	else if (nr == 2) {
+		opts.fn = twoway_merge;
+		opts.initial_checkout = is_index_unborn(the_repository->index);
+	} else if (nr >= 3) {
+		opts.fn = threeway_merge;
+		opts.head_idx = nr - 1;
+	}
+
+	if (unpack_trees(nr, t, &opts))
+		return -1;
+
+	if (write_locked_index(the_repository->index, &lock, COMMIT_LOCK))
+		return error(_("unable to write new index file"));
+
+	return 0;
+}
 
 static int write_tree(struct tree **reference_tree)
 {
-	struct child_process cp = CHILD_PROCESS_INIT;
-	struct strbuf read_tree = STRBUF_INIT, err = STRBUF_INIT;
 	struct object_id oid;
 	int ret;
 
-	cp.git_cmd = 1;
-	argv_array_push(&cp.args, "write-tree");
-	ret = pipe_command(&cp, NULL, 0, &read_tree, 0, &err, 0);
-	if (err.len > 0)
-		fputs(err.buf, stderr);
-
-	strbuf_trim_trailing_newline(&read_tree);
-	get_oid(read_tree.buf, &oid);
-
-	*reference_tree = lookup_tree(the_repository, &oid);
-
-	strbuf_release(&read_tree);
-	strbuf_release(&err);
-	child_process_clear(&cp);
+	ret = write_index_as_tree(&oid, the_repository->index,
+				  the_repository->index_file, 0, NULL);
+	if (!ret)
+		*reference_tree = lookup_tree(the_repository, &oid);
 
 	return ret;
 }
@@ -44,10 +81,23 @@ static int merge_octopus(struct commit_list *bases, const char *head_arg,
 	struct tree *reference_tree;
 	struct commit_list *j;
 	struct object_id head;
+	struct strbuf sb = STRBUF_INIT;
 
 	get_oid(head_arg, &head);
+
 	reference_commit = xcalloc(commit_list_count(remotes) + 1, sizeof(struct commit *));
 	reference_commit[0] = lookup_commit_reference(the_repository, &head);
+
+	if (repo_index_has_changes(the_repository,
+				   repo_get_commit_tree(the_repository, reference_commit[0]),
+				   &sb)) {
+		error(_("Your local changes to the following files "
+			"would be overwritten by merge:\n  %s"),
+		      sb.buf);
+		strbuf_release(&sb);
+		return 2;
+	}
+
 	write_tree(&reference_tree);
 
 	for (j = remotes; j; j = j->next) {
@@ -90,43 +140,36 @@ static int merge_octopus(struct commit_list *bases, const char *head_arg,
 		}
 
 		if (!non_ff_merge && can_ff) {
-			struct child_process cp = CHILD_PROCESS_INIT;
-
+			struct object_id oids[2];
 			printf(_("Fast-forwarding to: %s\n"), branch_name);
 
-			cp.git_cmd = 1;
-			argv_array_pushl(&cp.args, "read-tree", "-u", "-m", NULL);
-			argv_array_push(&cp.args, oid_to_hex(&head));
-			argv_array_push(&cp.args, oid_to_hex(oid));
+			oidcpy(oids, &head);
+			oidcpy(oids + 1, oid);
 
-			ret = run_command(&cp);
+			ret = fast_forward(oids, 2, 0);
 			if (ret) {
 				free(branch_name);
 				free_commit_list(common);
 				goto out;
 			}
 
-			child_process_clear(&cp);
 			references = 0;
 			write_tree(&reference_tree);
 		} else {
-			struct commit_list *l;
+			int i = 0;
 			struct tree *next = NULL;
-			struct child_process cp = CHILD_PROCESS_INIT;
+			struct object_id oids[MAX_UNPACK_TREES];
 
 			non_ff_merge = 1;
 			printf(_("Trying simple merge with %s\n"), branch_name);
 
-			cp.git_cmd = 1;
-			argv_array_pushl(&cp.args, "read-tree", "-u", "-m", "--aggressive", NULL);
+			for (k = common; k; k = k->next)
+				oidcpy(oids + (i++), &k->item->object.oid);
 
-			for (l = common; l; l = l->next)
-				argv_array_push(&cp.args, oid_to_hex(&l->item->object.oid));
+			oidcpy(oids + (i++), &reference_tree->object.oid);
+			oidcpy(oids + (i++), oid);
 
-			argv_array_push(&cp.args, oid_to_hex(&reference_tree->object.oid));
-			argv_array_push(&cp.args, oid_to_hex(oid));
-
-			if (run_command(&cp)) {
+			if (fast_forward(oids, i, 1)) {
 				ret = 2;
 
 				free(branch_name);
@@ -135,19 +178,15 @@ static int merge_octopus(struct commit_list *bases, const char *head_arg,
 				goto out;
 			}
 
-			child_process_clear(&cp);
-
 			if (write_tree(&next)) {
-				struct child_process cp = CHILD_PROCESS_INIT;
+				struct lock_file lock = LOCK_INIT;
+
 				puts(_("Simple merge did not work, trying automatic merge."));
+				repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
+				ret = !!merge_all(the_repository->index, 0, 0,
+						  merge_one_file_cb, the_repository);
+				write_locked_index(the_repository->index, &lock, COMMIT_LOCK);
 
-				cp.git_cmd = 1;
-				argv_array_pushl(&cp.args, "merge-index", "-o",
-						 "git-merge-one-file", "-a", NULL);
-				if (run_command(&cp))
-					ret = 1;
-
-				child_process_clear(&cp);
 				write_tree(&next);
 			}
 
@@ -174,11 +213,13 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 	struct commit_list *bases = NULL, *remotes = NULL;
 	struct commit_list **next_base = &bases, **next_remote = &remotes;
 	const char *head_arg = NULL;
-	struct child_process cp = CHILD_PROCESS_INIT;
-	struct strbuf files = STRBUF_INIT;
 
 	if (argc < 5)
 		usage(builtin_merge_octopus_usage);
+
+	setup_work_tree();
+	if (repo_read_index(the_repository) < 0)
+		die("corrupted cache");
 
 	/* The first parameters up to -- are merge bases; the rest are
 	 * heads. */
@@ -210,28 +251,6 @@ int cmd_merge_octopus(int argc, const char **argv, const char *prefix)
 	 * instead. */
 	if (commit_list_count(remotes) < 2)
 		return 2;
-
-	cp.git_cmd = 1;
-	argv_array_pushl(&cp.args, "diff-index", "--cached",
-			 "--name-only", "HEAD", "--", NULL);
-	pipe_command(&cp, NULL, 0, &files, 0, NULL, 0);
-	child_process_clear(&cp);
-
-	if (files.len > 0) {
-		struct strbuf **s, **b;
-
-		s = strbuf_split(&files, '\n');
-
-		fprintf(stderr, _("Error: Your local changes to the following "
-				  "files would be overwritten by merge\n"));
-
-		for (b = s; *b; b++)
-			fprintf(stderr, "    %.*s", (int)(*b)->len, (*b)->buf);
-
-		strbuf_list_free(s);
-		strbuf_release(&files);
-		return 2;
-	}
 
 	return merge_octopus(bases, head_arg, remotes);
 }
