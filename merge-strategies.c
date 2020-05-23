@@ -94,7 +94,7 @@ static int do_merge_one_file(struct index_state *istate,
 		read_mmblob(mmfs + 1, orig_blob);
 	} else {
 		printf("Added %s in both, but differently.\n", path);
-		read_mmblob(mmfs + 1, the_hash_algo->empty_blob);
+		read_mmblob(mmfs + 1, &null_oid);
 	}
 
 	xmp.level = XDL_MERGE_ZEALOUS_ALNUM;
