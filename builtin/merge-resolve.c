@@ -7,7 +7,7 @@
 #include "cache-tree.h"
 #include "builtin.h"
 #include "lockfile.h"
-#include "run-command.h"
+#include "merge-strategies.h"
 #include "unpack-trees.h"
 
 static int add_tree(const struct object_id *oid, struct tree_desc *t)
@@ -70,15 +70,14 @@ static int merge_resolve(struct oid_array *bases, const struct object_id *head,
 
 	if (write_index_as_tree(&oid, the_repository->index,
 				the_repository->index_file, 0, NULL)) {
-		struct child_process cp_merge = CHILD_PROCESS_INIT;
+		int ret;
 
-		puts("Simple merge failed, trying Automatic merge.");
+		repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
+		ret = merge_all(the_repository->index, 0, 0,
+				merge_one_file_cb, the_repository);
 
-		cp_merge.git_cmd = 1;
-		argv_array_pushl(&cp_merge.args, "merge-index", "-o",
-				 "git-merge-one-file", "-a", NULL);
-		if (run_command(&cp_merge))
-			return 1;
+		write_locked_index(the_repository->index, &lock, COMMIT_LOCK);
+		return !!ret;
 	}
 
 	return 0;
