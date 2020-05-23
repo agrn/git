@@ -2,6 +2,7 @@
 #include "dir.h"
 #include "ll-merge.h"
 #include "merge-strategies.h"
+#include "run-command.h"
 #include "xdiff-interface.h"
 
 static int add_to_index_cacheinfo(struct index_state *istate,
@@ -211,4 +212,102 @@ int merge_strategies_one_file(struct repository *r,
 	}
 
 	return 0;
+}
+
+int merge_program_cb(const struct object_id *orig_blob,
+		     const struct object_id *our_blob,
+		     const struct object_id *their_blob, const char *path,
+		     unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode,
+		     void *data)
+{
+	char ownbuf[3][GIT_MAX_HEXSZ] = {{0}};
+	const char *arguments[] = { (char *)data, "", "", "", path,
+				    ownbuf[0], ownbuf[1], ownbuf[2],
+				    NULL };
+
+	if (orig_blob)
+		arguments[1] = oid_to_hex(orig_blob);
+	if (our_blob)
+		arguments[2] = oid_to_hex(our_blob);
+	if (their_blob)
+		arguments[3] = oid_to_hex(their_blob);
+
+	xsnprintf(ownbuf[0], sizeof(ownbuf[0]), "%o", orig_mode);
+	xsnprintf(ownbuf[1], sizeof(ownbuf[1]), "%o", our_mode);
+	xsnprintf(ownbuf[2], sizeof(ownbuf[2]), "%o", their_mode);
+
+	return run_command_v_opt(arguments, 0);
+}
+
+static int merge_entry(struct index_state *istate, int quiet, int pos,
+		       const char *path, merge_cb cb, void *data)
+{
+	int found = 0;
+	const struct object_id *oids[3] = {NULL};
+	unsigned int modes[3] = {0};
+
+	do {
+		const struct cache_entry *ce = istate->cache[pos];
+		int stage = ce_stage(ce);
+
+		if (strcmp(ce->name, path))
+			break;
+		found++;
+		oids[stage - 1] = &ce->oid;
+		modes[stage - 1] = ce->ce_mode;
+	} while (++pos < istate->cache_nr);
+	if (!found)
+		return error(_("%s is not in the cache"), path);
+
+	if (cb(oids[0], oids[1], oids[2], path, modes[0], modes[1], modes[2], data)) {
+		if (!quiet)
+			error(_("Merge program failed"));
+		return -2;
+	}
+
+	return found;
+}
+
+int merge_one_path(struct index_state *istate, int oneshot, int quiet,
+		   const char *path, merge_cb cb, void *data)
+{
+	int pos = index_name_pos(istate, path, strlen(path)), ret;
+
+	/*
+	 * If it already exists in the cache as stage0, it's
+	 * already merged and there is nothing to do.
+	 */
+	if (pos < 0) {
+		ret = merge_entry(istate, quiet, -pos - 1, path, cb, data);
+		if (ret == -1)
+			return -1;
+		else if (ret == -2)
+			return 1;
+	}
+	return 0;
+}
+
+int merge_all(struct index_state *istate, int oneshot, int quiet,
+	      merge_cb cb, void *data)
+{
+	int err = 0, i, ret;
+	for (i = 0; i < istate->cache_nr; i++) {
+		const struct cache_entry *ce = istate->cache[i];
+		if (!ce_stage(ce))
+			continue;
+
+		ret = merge_entry(istate, quiet, i, ce->name, cb, data);
+		if (ret > 0)
+			i += ret - 1;
+		else if (ret == -1)
+			return -1;
+		else if (ret == -2) {
+			if (oneshot)
+				err++;
+			else
+				return 1;
+		}
+	}
+
+	return err;
 }
