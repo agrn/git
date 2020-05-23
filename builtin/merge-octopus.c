@@ -9,6 +9,7 @@
 #include "builtin.h"
 #include "commit-reach.h"
 #include "lockfile.h"
+#include "merge-strategies.h"
 #include "run-command.h"
 #include "unpack-trees.h"
 
@@ -173,19 +174,11 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 			}
 
 			if (write_tree(&next)) {
-				struct child_process cp = CHILD_PROCESS_INIT;
 				puts(_("Simple merge did not work, trying automatic merge."));
-
-				cp.git_cmd = 1;
-				argv_array_pushl(&cp.args, "merge-index", "-o",
-						 "git-merge-one-file", "-a", NULL);
-				if (run_command(&cp))
+				if (merge_all(the_repository->index, 0, 0,
+					      merge_one_file_cb, the_repository))
 					ret = 1;
 
-				discard_index(the_repository->index);
-				refresh_index(the_repository->index, 0, NULL, NULL, NULL);
-
-				child_process_clear(&cp);
 				write_tree(&next);
 			}
 
