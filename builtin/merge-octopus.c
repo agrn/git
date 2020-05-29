@@ -174,10 +174,13 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 			}
 
 			if (write_tree(&next)) {
+				struct lock_file lock = LOCK_INIT;
+
 				puts(_("Simple merge did not work, trying automatic merge."));
-				if (merge_all(the_repository->index, 0, 0,
-					      merge_one_file_cb, the_repository))
-					ret = 1;
+				repo_hold_locked_index(the_repository, &lock, LOCK_DIE_ON_ERROR);
+				ret = !!merge_all(the_repository->index, 0, 0,
+						  merge_one_file_cb, the_repository);
+				write_locked_index(the_repository->index, &lock, COMMIT_LOCK);
 
 				write_tree(&next);
 			}
