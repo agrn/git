@@ -4,6 +4,18 @@
 #include "run-command.h"
 #include "xdiff-interface.h"
 
+char *merge_get_better_branch_name(const char *branch)
+{
+	static char githead_env[8 + GIT_MAX_HEXSZ + 1];
+	char *name;
+
+	if (strlen(branch) != the_hash_algo->hexsz)
+		return xstrdup(branch);
+	xsnprintf(githead_env, sizeof(githead_env), "GITHEAD_%s", branch);
+	name = getenv(githead_env);
+	return xstrdup(name ? name : branch);
+}
+
 static int add_to_index_cacheinfo(struct index_state *istate,
 				  unsigned int mode,
 				  const struct object_id *oid, const char *path)

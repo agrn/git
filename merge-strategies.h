@@ -3,6 +3,8 @@
 
 #include "object.h"
 
+char *merge_get_better_branch_name(const char *branch);
+
 int merge_strategies_one_file(struct repository *r,
 			      const struct object_id *orig_blob,
 			      const struct object_id *our_blob,
