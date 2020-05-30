@@ -13,23 +13,6 @@
 #include "run-command.h"
 #include "unpack-trees.h"
 
-static char *get_pretty(struct object_id *oid)
-{
-	struct strbuf var = STRBUF_INIT;
-	char *hex, *pretty;
-
-	hex = oid_to_hex(oid);
-	strbuf_addf(&var, "GITHEAD_%s", hex);
-
-	pretty = getenv(var.buf);
-	if (!pretty)
-		pretty = xstrdup(hex);
-
-	strbuf_release(&var);
-
-	return pretty;
-}
-
 static int fast_forward(const struct object_id *oids, int nr, int aggressive)
 {
 	int i;
@@ -106,7 +89,7 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 		struct object_id *oid = remotes->oid + i;
 		struct commit *c;
 		struct commit_list *common, *l;
-		char *pretty_name;
+		char *branch_name;
 		int can_ff = 1;
 
 		if (ret) {
@@ -117,17 +100,17 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 			goto out;
 		}
 
-		pretty_name = get_pretty(oid);
+		branch_name = merge_get_better_branch_name(oid_to_hex(oid));
 		c = lookup_commit_reference(the_repository, oid);
 		common = get_merge_bases_many(c, references, reference_commit);
 
 		if (!common)
-			die(_("Unable to find common commit with %s"), pretty_name);
+			die(_("Unable to find common commit with %s"), branch_name);
 
 		for (l = common; l && !oideq(&l->item->object.oid, oid); l = l->next);
 
 		if (l) {
-			printf(_("Already up to date with %s\n"), pretty_name);
+			printf(_("Already up to date with %s\n"), branch_name);
 			free_commit_list(common);
 			continue;
 		}
@@ -143,7 +126,7 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 
 		if (!non_ff_merge && can_ff) {
 			struct object_id oids[2];
-			printf(_("Fast-forwarding to: %s\n"), pretty_name);
+			printf(_("Fast-forwarding to: %s\n"), branch_name);
 
 			oidcpy(oids, head);
 			oidcpy(oids + 1, oid);
@@ -160,7 +143,7 @@ static int merge_octopus(struct oid_array *bases, const struct object_id *head,
 			struct object_id oids[MAX_UNPACK_TREES];
 
 			non_ff_merge = 1;
-			printf(_("Trying simple merge with %s\n"), pretty_name);
+			printf(_("Trying simple merge with %s\n"), branch_name);
 
 			for (l = common; l; l = l->next)
 				oidcpy(oids + (j++), &l->item->object.oid);
