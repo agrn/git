@@ -178,6 +178,18 @@ int merge_three_way(struct repository *r,
 	return 0;
 }
 
+int merge_one_file_func(struct repository *r,
+			const struct object_id *orig_blob,
+			const struct object_id *our_blob,
+			const struct object_id *their_blob, const char *path,
+			unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode,
+			void *data)
+{
+	return merge_three_way(r,
+			       orig_blob, our_blob, their_blob, path,
+			       orig_mode, our_mode, their_mode);
+}
+
 int merge_one_file_spawn(struct repository *r,
 			 const struct object_id *orig_blob,
 			 const struct object_id *our_blob,
@@ -261,17 +273,22 @@ int merge_all_index(struct repository *r, int oneshot, int quiet,
 		    merge_fn fn, void *data)
 {
 	int err = 0, ret;
-	unsigned int i;
+	unsigned int i, prev_nr;
 
 	for (i = 0; i < r->index->cache_nr; i++) {
 		const struct cache_entry *ce = r->index->cache[i];
 		if (!ce_stage(ce))
 			continue;
 
+		prev_nr = r->index->cache_nr;
 		ret = merge_entry(r, quiet || oneshot, i, ce->name, &err, fn, data);
-		if (ret > 0)
-			i += ret - 1;
-		else if (ret == -1)
+		if (ret > 0) {
+			/* Don't bother handling an index that has
+			   grown, since merge_one_file_func() can't grow
+			   it, and merge_one_file_spawn() can't change
+			   it. */
+			i += ret - (prev_nr - r->index->cache_nr) - 1;
+		} else if (ret == -1)
 			return -1;
 
 		if (err && !oneshot)
