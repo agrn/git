@@ -15,6 +15,12 @@ typedef int (*merge_fn)(const struct object_id *orig_blob,
 			unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode,
 			void *data);
 
+int merge_one_file_func(const struct object_id *orig_blob,
+			const struct object_id *our_blob,
+			const struct object_id *their_blob, const char *path,
+			unsigned int orig_mode, unsigned int our_mode, unsigned int their_mode,
+			void *data);
+
 int merge_one_file_spawn(const struct object_id *orig_blob,
 			 const struct object_id *our_blob,
 			 const struct object_id *their_blob, const char *path,
