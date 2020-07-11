@@ -1,4 +1,5 @@
 #include "builtin.h"
+#include "lockfile.h"
 #include "merge-strategies.h"
 #include "run-command.h"
 
@@ -37,7 +38,10 @@ static int merge_one_file_spawn(struct index_state *istate,
 int cmd_merge_index(int argc, const char **argv, const char *prefix)
 {
 	int i, force_file = 0, err = 0, one_shot = 0, quiet = 0;
+	merge_fn merge_action = merge_one_file_spawn;
+	struct lock_file lock = LOCK_INIT;
 	struct repository *r = the_repository;
+	const char *use_internal = NULL;
 
 	/* Without this we cannot rely on waitpid() to tell
 	 * what happened to our children.
@@ -45,7 +49,7 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 	signal(SIGCHLD, SIG_DFL);
 
 	if (argc < 3)
-		usage("git merge-index [-o] [-q] <merge-program> (-a | [--] [<filename>...])");
+		usage("git merge-index [-o] [-q] (<merge-program> | --use=merge-one-file) (-a | [--] [<filename>...])");
 
 	if (repo_read_index(r) < 0)
 		die("invalid index");
@@ -61,6 +65,14 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 	}
 
 	pgm = argv[i++];
+	setup_work_tree();
+
+	if (skip_prefix(pgm, "--use=", &use_internal)) {
+		if (!strcmp(use_internal, "merge-one-file"))
+			pgm = "git-merge-one-file";
+		else
+			die(_("git merge-index: unknown internal program %s"), use_internal);
+	}
 
 	for (; i < argc; i++) {
 		const char *arg = argv[i];
@@ -71,13 +83,20 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 			}
 			if (!strcmp(arg, "-a")) {
 				err |= merge_all_index(r->index, one_shot, quiet,
-						       merge_one_file_spawn, NULL);
+						       merge_action, NULL);
 				continue;
 			}
 			die("git merge-index: unknown option %s", arg);
 		}
 		err |= merge_index_path(r->index, one_shot, quiet, arg,
-					merge_one_file_spawn, NULL);
+					merge_action, NULL);
+	}
+
+	if (is_lock_file_locked(&lock)) {
+		if (err)
+			rollback_lock_file(&lock);
+		else
+			return write_locked_index(r->index, &lock, COMMIT_LOCK);
 	}
 
 	return err;
