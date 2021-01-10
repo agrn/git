@@ -8,12 +8,14 @@ test_expect_success 'setup diverging branches' '
 		echo $i
 	done >file &&
 	cp file file2 &&
-	git add file file2 &&
+	cp file file3 &&
+	git add file file2 file3 &&
 	git commit -m base &&
 	git tag base &&
 	sed s/2/two/ <file >tmp &&
 	mv tmp file &&
 	cp file file2 &&
+	git rm file3 &&
 	git commit -a -m two &&
 	git tag two &&
 	git checkout -b other HEAD^ &&
@@ -41,6 +43,7 @@ test_expect_success 'read-tree does not resolve content merge' '
 	cat >expect <<-\EOF &&
 	file
 	file2
+	file3
 	EOF
 	git read-tree -i -m base ten two &&
 	git diff-files --name-only --diff-filter=U >unmerged &&
