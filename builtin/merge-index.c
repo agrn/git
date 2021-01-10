@@ -1,4 +1,3 @@
-#define USE_THE_INDEX_COMPATIBILITY_MACROS
 #include "builtin.h"
 #include "merge-strategies.h"
 #include "run-command.h"
@@ -38,6 +37,7 @@ static int merge_one_file_spawn(struct index_state *istate,
 int cmd_merge_index(int argc, const char **argv, const char *prefix)
 {
 	int i, force_file = 0, err = 0, one_shot = 0, quiet = 0;
+	struct repository *r = the_repository;
 
 	/* Without this we cannot rely on waitpid() to tell
 	 * what happened to our children.
@@ -47,7 +47,8 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 	if (argc < 3)
 		usage("git merge-index [-o] [-q] <merge-program> (-a | [--] [<filename>...])");
 
-	read_cache();
+	if (repo_read_index(r) < 0)
+		die("invalid index");
 
 	i = 1;
 	if (!strcmp(argv[i], "-o")) {
@@ -69,13 +70,13 @@ int cmd_merge_index(int argc, const char **argv, const char *prefix)
 				continue;
 			}
 			if (!strcmp(arg, "-a")) {
-				err |= merge_all_index(&the_index, one_shot, quiet,
+				err |= merge_all_index(r->index, one_shot, quiet,
 						       merge_one_file_spawn, NULL);
 				continue;
 			}
 			die("git merge-index: unknown option %s", arg);
 		}
-		err |= merge_index_path(&the_index, one_shot, quiet, arg,
+		err |= merge_index_path(r->index, one_shot, quiet, arg,
 					merge_one_file_spawn, NULL);
 	}
 
